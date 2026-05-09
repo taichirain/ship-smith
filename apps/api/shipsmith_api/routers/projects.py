@@ -6,8 +6,10 @@ import json
 import subprocess
 import tempfile
 import shutil
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -1768,6 +1770,138 @@ def _parse_git_repo(git_repo: str) -> str:
     return repo
 
 
+def _extract_repo_info(git_repo: str) -> Optional[Dict[str, str]]:
+    """Extract provider, owner, and repo from a git URL.
+    
+    Supported formats:
+    - git@github.com:owner/repo.git
+    - https://github.com/owner/repo.git
+    - https://github.com/owner/repo
+    - git@gitee.com:owner/repo.git
+    - https://gitee.com/owner/repo.git
+    - https://gitee.com/owner/repo
+    """
+    repo = git_repo.strip()
+    if not repo:
+        return None
+
+    patterns = [
+        r"^git@(github|gitee)\.com:([^/]+)/([^/.]+)(?:\.git)?$",
+        r"^https?://(?:www\.)?(github|gitee)\.com/([^/]+)/([^/.]+)(?:\.git)?/?$",
+    ]
+
+    for pattern in patterns:
+        match = re.match(pattern, repo)
+        if match:
+            return {
+                "provider": match.group(1),
+                "owner": match.group(2),
+                "repo": match.group(3),
+            }
+
+    return None
+
+
+def _list_branches_via_api(git_repo: str) -> Optional[GitBranchesResponse]:
+    """Try to list branches using the hosting provider's HTTP API.
+    
+    This works for public repositories without requiring authentication.
+    """
+    repo_info = _extract_repo_info(git_repo)
+    if not repo_info:
+        return None
+
+    provider = repo_info["provider"]
+    owner = repo_info["owner"]
+    repo = repo_info["repo"]
+
+    api_url: Optional[str] = None
+    headers = {"Accept": "application/json"}
+
+    if provider == "github":
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/branches"
+    elif provider == "gitee":
+        api_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/branches"
+
+    if not api_url:
+        return None
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+            if not isinstance(data, list):
+                return None
+
+            branches: List[GitBranchInfo] = []
+            default_branch: Optional[str] = None
+
+            for branch_data in data:
+                if not isinstance(branch_data, dict):
+                    continue
+                name = branch_data.get("name")
+                if not name:
+                    continue
+
+                branches.append(GitBranchInfo(name=name, is_default=False))
+
+            if not branches:
+                return None
+
+            default_url: Optional[str] = None
+            if provider == "github":
+                default_url = f"https://api.github.com/repos/{owner}/{repo}"
+            elif provider == "gitee":
+                default_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}"
+
+            if default_url:
+                try:
+                    req2 = urllib.request.Request(default_url, headers=headers)
+                    with urllib.request.urlopen(req2, timeout=10) as response2:
+                        repo_data = json.loads(response2.read().decode("utf-8"))
+                        if isinstance(repo_data, dict):
+                            default_branch = repo_data.get("default_branch")
+                except Exception:
+                    pass
+
+            if not default_branch:
+                for name in ["main", "master"]:
+                    if any(b.name == name for b in branches):
+                        default_branch = name
+                        break
+                if not default_branch and branches:
+                    default_branch = branches[0].name
+
+            for branch in branches:
+                if branch.name == default_branch:
+                    branch.is_default = True
+
+            branches = sorted(
+                branches,
+                key=lambda b: (0 if b.is_default else 1, b.name.lower()),
+            )
+
+            return GitBranchesResponse(
+                branches=branches,
+                repo=git_repo,
+                success=True,
+                error=None,
+            )
+
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return GitBranchesResponse(
+                branches=[],
+                repo=git_repo,
+                success=False,
+                error=f"Repository not found on {provider.title()} or is private",
+            )
+        return None
+    except Exception:
+        return None
+
+
 def _is_git_available() -> bool:
     """Check if git is available on the system."""
     try:
@@ -1782,25 +1916,9 @@ def _is_git_available() -> bool:
         return False
 
 
-def _list_git_branches(git_repo: str) -> GitBranchesResponse:
-    """List all branches from a remote git repository."""
+def _list_branches_via_git(git_repo: str) -> GitBranchesResponse:
+    """List branches using local git command."""
     repo = _parse_git_repo(git_repo)
-
-    if not repo:
-        return GitBranchesResponse(
-            branches=[],
-            repo=git_repo,
-            success=False,
-            error="Git repository URL is required",
-        )
-
-    if not _is_git_available():
-        return GitBranchesResponse(
-            branches=[],
-            repo=git_repo,
-            success=False,
-            error="Git is not installed on the server",
-        )
 
     temp_dir = None
     try:
@@ -1822,8 +1940,8 @@ def _list_git_branches(git_repo: str) -> GitBranchesResponse:
                 error=result.stderr.strip() or "Failed to list branches",
             )
 
-        branches = []
-        default_branch = None
+        branches: List[GitBranchInfo] = []
+        default_branch: Optional[str] = None
         lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
         for line in lines:
@@ -1903,6 +2021,44 @@ def _list_git_branches(git_repo: str) -> GitBranchesResponse:
     finally:
         if temp_dir and Path(temp_dir).exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _list_git_branches(git_repo: str) -> GitBranchesResponse:
+    """List all branches from a remote git repository.
+    
+    Strategy:
+    1. First try using the hosting provider's HTTP API (GitHub/Gitee)
+       - Works for public repos without git installed
+       - No authentication required for public repos
+    2. Fall back to using local git command
+    """
+    repo = _parse_git_repo(git_repo)
+
+    if not repo:
+        return GitBranchesResponse(
+            branches=[],
+            repo=git_repo,
+            success=False,
+            error="Git repository URL is required",
+        )
+
+    api_result = _list_branches_via_api(git_repo)
+    if api_result is not None:
+        return api_result
+
+    if _is_git_available():
+        return _list_branches_via_git(git_repo)
+
+    return GitBranchesResponse(
+        branches=[],
+        repo=git_repo,
+        success=False,
+        error=(
+            "Git is not installed on the server, and we couldn't detect "
+            "a supported Git hosting provider (GitHub/Gitee). "
+            "Please install git on the server or use a GitHub/Gitee repository URL."
+        ),
+    )
 
 
 @router.post("/git-branches", response_model=GitBranchesResponse)
