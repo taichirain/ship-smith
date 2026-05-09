@@ -1,0 +1,27 @@
+project: "my-saas"
+
+git:
+  repo: "git@github.com:user/my-saas.git"
+  branch: "main"
+
+deploy:
+  workdir: "/opt/my-saas"
+  strategy: "compose-build"
+
+compose:
+  file: "docker-compose.yml"
+  service: "app"
+
+health_check:
+  type: "http"
+  url: "http://127.0.0.1:3000/api/health"
+  timeout_seconds: 10
+  expected_status: 200
+
+flags:
+  file: "/var/lib/shipsmith/my-saas/flags.json"
+
+runtime:
+  env_file: ".env"
+  pre_deploy: ""
+  post_deploy: ""

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>快速入门 - ShipSmith 文档</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>ShipSmith</h1>
+        <p>部署自动化 + Feature Flag 控制平面</p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">文档</div>
+          <ul class="nav-links">
+<li><a href="index.html" class="">概述</a></li>
+<li><a href="quickstart.html" class="active">快速入门</a></li>
+<li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="api-reference.html" class="">API 参考</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="content">
+        <h1 class="page-title">快速入门</h1>
+        <p class="page-desc">5 分钟内搭建 ShipSmith</p>
+        <article>
+<h1>快速入门</h1>
+<p>本指南将帮助你在 5 分钟内搭建并运行 ShipSmith。</p>
+<h2>前置要求</h2>
+<p>- <strong>PostgreSQL</strong> 12+</p>
+<p>- <strong>Python</strong> 3.10+</p>
+<p>- <strong>Node.js</strong> 18+</p>
+<p>- <strong>npm</strong> 或 <strong>yarn</strong></p>
+<h2>步骤 1：准备数据库</h2>
+<p>确保 PostgreSQL 已启动，然后创建数据库：</p>
+<pre><code class="language-bash">
+createdb shipsmith
+</code></pre>
+<p>如果你需要自定义连接信息，设置环境变量：</p>
+<pre><code class="language-bash">
+export DATABASE_URL="postgresql://user:password@host:5432/shipsmith"
+</code></pre>
+<h2>步骤 2：运行数据库迁移</h2>
+<pre><code class="language-bash">
+cd ship-smith
+bash dev.sh db-init
+</code></pre>
+<p>这将使用 Alembic 创建所有必要的表结构。</p>
+<h2>步骤 3：启动 Core API</h2>
+<pre><code class="language-bash">
+bash dev.sh start-api
+</code></pre>
+<p>API 将在 http://localhost:8000 运行。</p>
+<p>你可以访问 http://localhost:8000/docs 查看交互式 API 文档（Swagger UI）。</p>
+<h2>步骤 4：启动 Web Panel</h2>
+<p>打开另一个终端：</p>
+<pre><code class="language-bash">
+cd ship-smith/apps/web
+npm install
+npm run dev
+</code></pre>
+<p>Web Panel 将在 http://localhost:3000 运行。</p>
+<h2>步骤 5：登录</h2>
+<p>打开浏览器访问 http://localhost:3000，使用默认账号登录：</p>
+<p>- <strong>用户名</strong>: <code>admin</code></p>
+<p>- <strong>密码</strong>: <code>admin123</code></p>
+<p><blockquote>⚠️ 生产环境请务必修改默认密码！</blockquote></p>
+<h2>步骤 6：创建你的第一个项目</h2>
+<p>登录后：</p>
+<p>1. 点击 <strong>New Project</strong></p>
+<p>2. 填写项目信息：</p>
+<p>   - <strong>Project Name</strong>: 项目名称（如 <code>my-saas</code>）</p>
+<p>   - <strong>Git Repository</strong>: Git 仓库地址（如 <code>git@github.com:user/my-saas.git</code>）</p>
+<p>   - <strong>Git Branch</strong>: 默认分支（如 <code>main</code>）</p>
+<p>   - <strong>Deploy Workdir</strong>: Agent 执行命令的目录（如 <code>/opt/my-saas</code>）</p>
+<p>   - <strong>Flags File Path</strong>: Feature Flag JSON 文件路径（如 <code>/var/lib/shipsmith/my-saas/flags.json</code>）</p>
+<p>3. 点击 <strong>Create Project</strong></p>
+<p><blockquote>📋 创建成功后，<strong>请保存显示的 <code>agent_token</code></strong>，这是 Agent 与 Core 通信的凭证，只会显示一次。</blockquote></p>
+<h2>步骤 7：安装 Agent</h2>
+<p>在你的目标服务器上安装 Agent。</p>
+<h3>方式 A：从源码运行（开发环境）</h3>
+<pre><code class="language-bash">
+export SHIPSMITH_AGENT_TOKEN="your-agent-token-here"
+export SHIPSMITH_CORE_URL="http://your-core-host:8000/api/v1"
+export SHIPSMITH_WORKDIR="/opt/my-saas"
+
+cd ship-smith
+bash dev.sh start-agent
+</code></pre>
+<h3>方式 B：使用安装脚本（生产环境）</h3>
+<p>首先在开发机器上打包：</p>
+<pre><code class="language-bash">
+bash packages/agent/package.sh 1.0.0
+</code></pre>
+<p>然后将生成的 tar.gz 复制到目标服务器，解压并安装：</p>
+<pre><code class="language-bash">
+tar -xzf shipsmith-agent-v1.0.0-linux-x64.tar.gz
+cd shipsmith-agent-v1.0.0
+
+bash install.sh \
+  --token "your-agent-token-here" \
+  --core-url "http://your-core-host:8000/api/v1" \
+  --workdir "/opt/my-saas"
+</code></pre>
+<p>启动 Agent：</p>
+<pre><code class="language-bash">
+source ~/.config/shipsmith/env
+shipsmith-agent
+</code></pre>
+<h2>步骤 8：触发第一次部署</h2>
+<p>在 Web Panel 中：</p>
+<p>1. 进入项目详情页</p>
+<p>2. 点击 <strong>Deploy</strong> 按钮</p>
+<p>3. Agent 会自动：</p>
+<p>   - <code>git fetch</code> 最新代码</p>
+<p>   - <code>git checkout</code> 到指定分支</p>
+<p>   - <code>docker compose build</code>（或 <code>pull</code>）</p>
+<p>   - <code>docker compose up -d</code></p>
+<p>   - 回传日志和状态</p>
+<h2>下一步</h2>
+<p>- 阅读 <a href="./architecture.md">架构说明</a> 了解系统设计</p>
+<p>- 查看 <a href="./api-reference.md">API 参考</a> 获取完整 API 列表</p>
+<p>- 了解如何使用 <a href="#">Feature Flag SDK</a></p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Docker
+.git/
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+node_modules/
+.next/
+.venv/
+*.egg-info/
+dist/
+build/
+packages/agent/dist/
+packages/agent/build/
+docs/site/
+*.log
+.env
+.env.local
+.idea/
+.vscode/

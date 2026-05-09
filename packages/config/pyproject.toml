@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shipsmith-config"
+version = "0.1.0"
+description = "ShipSmith shared configuration, schemas, and protocol definitions"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.5.0",
+    "pydantic-yaml>=1.2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

@@ -1,0 +1,484 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  FolderGit2,
+  GitCommit,
+  Server,
+  Activity,
+  Flag,
+  X,
+  RefreshCw,
+  Loader2,
+} from 'lucide-react';
+import { api, Project, EnvironmentType, GitBranchInfo } from '@/lib/api';
+
+const ENVIRONMENT_OPTIONS: { value: EnvironmentType; label: string; color: string }[] = [
+  { value: 'production', label: '生产环境', color: 'bg-red-100 text-red-800 border-red-200' },
+  { value: 'staging', label: '预发环境', color: 'bg-orange-100 text-orange-800 border-orange-200' },
+  { value: 'development', label: '开发环境', color: 'bg-green-100 text-green-800 border-green-200' },
+  { value: 'testing', label: '测试环境', color: 'bg-blue-100 text-blue-800 border-blue-200' },
+  { value: 'other', label: '其他', color: 'bg-gray-100 text-gray-800 border-gray-200' },
+];
+
+interface FormData {
+  name: string;
+  environment: EnvironmentType | null;
+  git_repo: string;
+  git_branch: string;
+  deploy_workdir: string;
+  compose_file: string;
+  compose_service: string;
+  deploy_strategy: string;
+  healthcheck_url: string;
+  healthcheck_timeout_seconds: number;
+  flags_file_path: string;
+}
+
+interface ProjectFormProps {
+  onClose: () => void;
+  onSuccess: (project: Project) => void;
+  onError: (error: string) => void;
+}
+
+function generateFlagsPath(name: string): string {
+  return `/var/lib/shipsmith/${name}/flags.json`;
+}
+
+function generateWorkdir(name: string): string {
+  return `/opt/${name}`;
+}
+
+export default function ProjectForm({ onClose, onSuccess, onError }: ProjectFormProps) {
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState<FormData>({
+    name: '',
+    environment: null,
+    git_repo: '',
+    git_branch: 'main',
+    deploy_workdir: '',
+    compose_file: 'docker-compose.yml',
+    compose_service: 'app',
+    deploy_strategy: 'compose-build',
+    healthcheck_url: '',
+    healthcheck_timeout_seconds: 10,
+    flags_file_path: '',
+  });
+
+  const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [branchError, setBranchError] = useState<string | null>(null);
+
+  const loadBranches = useCallback(async (gitRepo: string) => {
+    const trimmed = gitRepo.trim();
+    if (!trimmed) {
+      setGitBranches([]);
+      setBranchError(null);
+      return;
+    }
+
+    try {
+      setLoadingBranches(true);
+      setBranchError(null);
+      const result = await api.listGitBranches(trimmed);
+
+      if (result.success && result.branches.length > 0) {
+        setGitBranches(result.branches);
+        const defaultBranch = result.branches.find((b) => b.is_default);
+        if (defaultBranch && !formData.git_branch) {
+          setFormData((prev) => ({ ...prev, git_branch: defaultBranch.name }));
+        }
+      } else {
+        setGitBranches([]);
+        setBranchError(result.error || 'No branches found');
+      }
+    } catch (err: any) {
+      setGitBranches([]);
+      setBranchError(err.message || 'Failed to load branches');
+    } finally {
+      setLoadingBranches(false);
+    }
+  }, [formData.git_branch]);
+
+  useEffect(() => {
+    const trimmed = formData.git_repo.trim();
+    if (!trimmed) {
+      setGitBranches([]);
+      setBranchError(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      loadBranches(trimmed);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [formData.git_repo, loadBranches]);
+
+  const updateField = <K extends keyof FormData>(
+    field: K,
+    value: FormData[K]
+  ) => {
+    const newData = { ...formData, [field]: value };
+
+    if (field === 'name') {
+      const name = String(value).toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+      if (name && !formData.deploy_workdir) {
+        newData.deploy_workdir = generateWorkdir(name);
+      }
+      if (name && !formData.flags_file_path) {
+        newData.flags_file_path = generateFlagsPath(name);
+      }
+    }
+
+    setFormData(newData);
+  };
+
+  const canSubmit = (): boolean => {
+    return (
+      !!formData.name &&
+      !!formData.git_repo &&
+      !!formData.deploy_workdir &&
+      !!formData.compose_file &&
+      !!formData.compose_service &&
+      !!formData.flags_file_path
+    );
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      const project = await api.createProject({
+        name: formData.name,
+        environment: formData.environment || undefined,
+        git_repo: formData.git_repo,
+        git_branch: formData.git_branch || 'main',
+        deploy_workdir: formData.deploy_workdir,
+        flags_file_path: formData.flags_file_path,
+        healthcheck_url: formData.healthcheck_url || null,
+        deploy_strategy: formData.deploy_strategy,
+        compose_file: formData.compose_file,
+        compose_service: formData.compose_service,
+        healthcheck_timeout_seconds: formData.healthcheck_timeout_seconds,
+      });
+      onSuccess(project);
+    } catch (err: any) {
+      onError(err.message || '创建项目失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">创建新项目（高级表单）</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          className="flex-1 overflow-y-auto p-6 space-y-6"
+        >
+          <div className="border-t border-gray-200 pt-4 first:border-t-0 first:pt-0">
+            <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+              <FolderGit2 className="w-4 h-4 text-gray-500" />
+              基本信息
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Project Name <span className="text-red-500">*</span></span>
+                  <span className="text-xs text-gray-400 font-normal">项目标识名称</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={formData.name}
+                  onChange={(e) => updateField('name', e.target.value)}
+                  placeholder="my-saas-app"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  仅用于标识，支持字母、数字、点、横杠和下划线
+                </p>
+              </div>
+
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Environment</span>
+                  <span className="text-xs text-gray-400 font-normal">环境</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateField('environment', null)}
+                    className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                      !formData.environment
+                        ? 'bg-primary-50 border-primary-300 text-primary-700'
+                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    不指定
+                  </button>
+                  {ENVIRONMENT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => updateField('environment', opt.value)}
+                      className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                        formData.environment === opt.value
+                          ? `${opt.color} font-medium border-2`
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  用于在项目列表中过滤和区分不同环境
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+              <GitCommit className="w-4 h-4 text-gray-500" />
+              Git 配置
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Git Repository <span className="text-red-500">*</span></span>
+                  <span className="text-xs text-gray-400 font-normal">代码仓库</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={formData.git_repo}
+                  onChange={(e) => updateField('git_repo', e.target.value)}
+                  placeholder="git@github.com:user/repo.git"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  支持 SSH 或 HTTPS 协议
+                </p>
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Branch</span>
+                  <span className="text-xs text-gray-400 font-normal">部署分支</span>
+                </label>
+                <div className="relative">
+                  {gitBranches.length > 0 ? (
+                    <select
+                      className="input pr-10"
+                      value={formData.git_branch}
+                      onChange={(e) => updateField('git_branch', e.target.value)}
+                    >
+                      {gitBranches.map((branch) => (
+                        <option key={branch.name} value={branch.name}>
+                          {branch.name}
+                          {branch.is_default ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      className="input pr-10"
+                      value={formData.git_branch}
+                      onChange={(e) => updateField('git_branch', e.target.value)}
+                      placeholder="main"
+                    />
+                  )}
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {loadingBranches ? (
+                      <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                    ) : formData.git_repo.trim() && gitBranches.length === 0 && !branchError ? (
+                      <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                    ) : null}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  {branchError ? (
+                    <span className="text-red-500">{branchError} - 请手动输入</span>
+                  ) : gitBranches.length > 0 ? (
+                    <>已自动读取 <b>{gitBranches.length}</b> 个分支</>
+                  ) : (
+                    '默认从该分支拉取最新代码'
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+              <Server className="w-4 h-4 text-gray-500" />
+              部署配置
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Deploy Workdir <span className="text-red-500">*</span></span>
+                  <span className="text-xs text-gray-400 font-normal">工作目录</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={formData.deploy_workdir}
+                  onChange={(e) => updateField('deploy_workdir', e.target.value)}
+                  placeholder="/opt/my-saas-app"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Agent 执行部署的目录，必须是绝对路径
+                </p>
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Compose File <span className="text-red-500">*</span></span>
+                  <span className="text-xs text-gray-400 font-normal">Compose 文件</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={formData.compose_file}
+                  onChange={(e) => updateField('compose_file', e.target.value)}
+                  placeholder="docker-compose.yml"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  相对于工作目录的 docker-compose.yml 路径
+                </p>
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Compose Service <span className="text-red-500">*</span></span>
+                  <span className="text-xs text-gray-400 font-normal">主服务名</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={formData.compose_service}
+                  onChange={(e) => updateField('compose_service', e.target.value)}
+                  placeholder="app"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  docker-compose.yml 中定义的主要应用服务
+                </p>
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Deploy Strategy</span>
+                  <span className="text-xs text-gray-400 font-normal">部署策略</span>
+                </label>
+                <select
+                  className="input"
+                  value={formData.deploy_strategy}
+                  onChange={(e) => updateField('deploy_strategy', e.target.value)}
+                >
+                  <option value="compose-build">compose-build (构建镜像)</option>
+                  <option value="compose-pull">compose-pull (拉取镜像)</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  compose-build: 在服务器上构建 | compose-pull: 直接拉取镜像
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-gray-500" />
+              健康检查
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Health Check URL</span>
+                  <span className="text-xs text-gray-400 font-normal">健康检查地址</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={formData.healthcheck_url}
+                  onChange={(e) => updateField('healthcheck_url', e.target.value)}
+                  placeholder="http://127.0.0.1:3000/api/health"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Agent 调用此端点判断应用是否正常，建议返回 200 OK
+                </p>
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Health Check Timeout (seconds)</span>
+                  <span className="text-xs text-gray-400 font-normal">超时时间</span>
+                </label>
+                <input
+                  type="number"
+                  className="input"
+                  min="1"
+                  max="300"
+                  value={formData.healthcheck_timeout_seconds}
+                  onChange={(e) => updateField('healthcheck_timeout_seconds', parseInt(e.target.value) || 10)}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  建议根据应用启动时间调整，默认 10 秒
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+              <Flag className="w-4 h-4 text-gray-500" />
+              功能开关
+            </h3>
+            <div>
+              <label className="label flex items-center justify-between">
+                <span>Flags File Path <span className="text-red-500">*</span></span>
+                <span className="text-xs text-gray-400 font-normal">开关文件</span>
+              </label>
+              <input
+                type="text"
+                className="input"
+                value={formData.flags_file_path}
+                onChange={(e) => updateField('flags_file_path', e.target.value)}
+                placeholder="/var/lib/shipsmith/my-saas-app/flags.json"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                功能开关 JSON 文件路径，应用可读取此文件控制功能开关
+              </p>
+            </div>
+          </div>
+        </form>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn btn-secondary"
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={saving || !canSubmit()}
+            className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? '创建中...' : '创建项目'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+wheels/
+*.egg
+
+# Virtual environments
+.venv
+.venv/
+venv/
+env/
+ENV/
+
+# Node.js
+node_modules/
+.next/
+out/
+.npm
+.next/
+
+# Build artifacts
+packages/agent/dist/
+packages/agent/build/
+packages/agent/.venv/
+packages/agent/.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local dev
+.agents/
+.codex/
+
+# Environment
+.env
+.env.local
+.venv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Alembic
+versions/*.pyc

@@ -1,0 +1,24 @@
+# Docker build — exclude unnecessary files to keep context small
+.git/
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+.next/
+*.egg-info/
+dist/
+build/
+packages/agent/dist/
+packages/agent/build/
+docs/site/
+*.log
+.env
+.env.local
+.idea/
+.vscode/
+*.swp
+*.swo

@@ -1,0 +1,194 @@
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch
+
+
+class TestProjects:
+    def test_create_project(self, client: TestClient, auth_headers):
+        response = client.post(
+            "/api/v1/projects",
+            headers=auth_headers,
+            json={
+                "name": "new-project",
+                "git_repo": "https://github.com/test/new-repo.git",
+                "git_branch": "develop",
+                "deploy_workdir": "/opt/new-project",
+                "compose_file": "docker-compose.yml",
+                "compose_service": "app",
+                "deploy_strategy": "compose-build",
+                "healthcheck_url": "http://localhost:8080/health",
+                "healthcheck_timeout_seconds": 10,
+                "flags_file_path": "/opt/new-project/flags.json",
+            },
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "new-project"
+        assert data["git_branch"] == "develop"
+        assert "agent_id" in data
+        assert "agent_token" in data
+        assert len(data["agent_token"]) > 0
+
+    def test_list_projects(self, client: TestClient, auth_headers, test_project):
+        response = client.get("/api/v1/projects", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        project_names = [p["name"] for p in data]
+        assert test_project.name in project_names
+
+    def test_get_project(self, client: TestClient, auth_headers, test_project):
+        response = client.get(
+            f"/api/v1/projects/{test_project.id}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == test_project.id
+        assert data["name"] == test_project.name
+        assert "agent_id" in data
+
+    def test_get_project_not_found(self, client: TestClient, auth_headers):
+        response = client.get("/api/v1/projects/99999", headers=auth_headers)
+        assert response.status_code == 404
+
+    def test_update_project(self, client: TestClient, auth_headers, test_project):
+        response = client.patch(
+            f"/api/v1/projects/{test_project.id}",
+            headers=auth_headers,
+            json={
+                "name": "updated-project",
+                "git_branch": "feature-branch",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "updated-project"
+        assert data["git_branch"] == "feature-branch"
+        assert data["git_repo"] == test_project.git_repo
+
+    def test_update_project_empty_payload(self, client: TestClient, auth_headers, test_project):
+        response = client.patch(
+            f"/api/v1/projects/{test_project.id}",
+            headers=auth_headers,
+            json={},
+        )
+        assert response.status_code == 400
+
+    def test_rotate_agent_token(self, client: TestClient, auth_headers, test_project):
+        old_agent_id = test_project.agent_id
+        response = client.post(
+            f"/api/v1/projects/{test_project.id}/rotate-agent-token",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["agent_id"] == old_agent_id
+        assert "agent_token" in data
+        assert len(data["agent_token"]) > 0
+
+    def test_get_project_status(self, client: TestClient, auth_headers, test_project):
+        test_project.status.snapshot = {
+            "runtime": {
+                "os_name": "Linux",
+                "shell": "/bin/bash",
+                "docker_compose_command": "docker compose",
+            },
+            "app_health": {
+                "status": "healthy",
+            },
+        }
+        response = client.get(
+            f"/api/v1/projects/{test_project.id}/status",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["project_id"] == test_project.id
+        assert "health_status" in data
+        assert "updated_at" in data
+        assert data["runtime"]["os_name"] == "Linux"
+        assert data["runtime"]["docker_compose_command"] == "docker compose"
+
+    def test_generate_webhook_secret(self, client: TestClient, auth_headers, test_project):
+        response = client.post(
+            f"/api/v1/projects/{test_project.id}/generate-webhook-secret",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert "webhook_secret" in data
+        assert len(data["webhook_secret"]) > 0
+        assert "webhook_endpoint" in data
+
+    def test_generate_deploy_commands_llm_not_configured(self, client: TestClient, auth_headers, test_project):
+        response = client.post(
+            f"/api/v1/projects/{test_project.id}/generate-deploy-commands",
+            headers=auth_headers,
+            json={},
+        )
+        assert response.status_code == 503
+
+    @patch("shipsmith_api.routers.projects.get_settings")
+    @patch("shipsmith_api.routers.projects.LLMClient.generate_deploy_commands")
+    def test_generate_deploy_commands_success(self, mock_generate, mock_get_settings, client: TestClient, auth_headers, test_project):
+        test_project.status.snapshot = {
+            "runtime": {
+                "os_name": "Linux",
+                "os_release": "6.8",
+                "shell": "/bin/bash",
+                "docker_compose_command": "docker compose",
+            },
+            "containers": [],
+            "app_health": {
+                "status": "healthy",
+            },
+            "agent_version": "0.1.0",
+        }
+
+        mock_get_settings.return_value = type(
+            "Settings",
+            (),
+            {
+                "llm_enabled": True,
+                "llm_provider": "openai",
+                "llm_api_key": "test-key",
+                "llm_api_base": "",
+                "llm_model": "gpt-4o-mini",
+                "llm_temperature": 0.3,
+                "llm_timeout": 30,
+            },
+        )()
+        mock_generate.return_value = {
+            "plan": {
+                "assumptions": ["已安装 Docker"],
+                "prechecks": ["docker compose version"],
+                "commands": [
+                    {
+                        "title": "更新代码",
+                        "command": "git fetch --all --prune\n git checkout main\n git pull --ff-only",
+                        "purpose": "同步最新代码",
+                    }
+                ],
+                "verification": ["docker compose ps"],
+                "explanation": "按 Linux + docker compose 生成。",
+            },
+            "llm_provider": "openai",
+            "llm_model": "gpt-4o-mini",
+            "llm_duration_ms": 1200,
+        }
+
+        response = client.post(
+            f"/api/v1/projects/{test_project.id}/generate-deploy-commands",
+            headers=auth_headers,
+            json={"user_goal": "生成部署命令"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["project_id"] == test_project.id
+        assert data["system_summary"]["os_name"] == "Linux"
+        assert data["commands"][0]["title"] == "更新代码"
+        assert "README.md" in data["source_files"]

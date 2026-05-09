@@ -1,0 +1,24 @@
+{
+  "name": "@shipsmith/sdk",
+  "version": "0.1.0",
+  "description": "ShipSmith Feature Flag SDK for Node.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc"
+  },
+  "keywords": [
+    "feature-flags",
+    "shipsmith"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
