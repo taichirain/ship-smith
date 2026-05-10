@@ -15,6 +15,7 @@ class Settings(BaseModel):
     jwt_secret_key: str = "change-me-in-production-please"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24
+    git_credentials_secret_key: str = ""
 
     admin_username: str = "admin"
     admin_password: str = "admin123"
@@ -65,6 +66,7 @@ def get_settings() -> Settings:
         jwt_secret_key=os.environ.get("JWT_SECRET_KEY", "change-me-in-production-please"),
         jwt_algorithm=os.environ.get("JWT_ALGORITHM", "HS256"),
         jwt_expire_minutes=int(os.environ.get("JWT_EXPIRE_MINUTES", "1440")),
+        git_credentials_secret_key=os.environ.get("GIT_CREDENTIALS_SECRET_KEY", ""),
         admin_username=os.environ.get("ADMIN_USERNAME", "admin"),
         admin_password=os.environ.get("ADMIN_PASSWORD", "admin123"),
         heartbeat_retention_days=int(os.environ.get("HEARTBEAT_RETENTION_DAYS", "7")),

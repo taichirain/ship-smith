@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..deps import get_db, get_current_agent
 from ..schemas import DeploymentResponse
+from ..security import decrypt_secret
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -168,6 +169,11 @@ async def poll_task(
             "deploy_strategy": project.deploy_strategy if project else "compose-build",
             "git_branch": project.git_branch if project else "main",
             "git_repo": project.git_repo if project else None,
+            "git_credential_type": project.git_credential_type if project else "none",
+            "git_credential_username": project.git_credential_username if project else None,
+            "git_credential_token": decrypt_secret(project.git_credential_token_encrypted) if project else None,
+            "git_credential_ssh_private_key": decrypt_secret(project.git_credential_ssh_private_key_encrypted) if project else None,
+            "git_credential_ssh_known_hosts": project.git_credential_ssh_known_hosts if project else None,
             "compose_file": project.compose_file if project else "docker-compose.yml",
             "compose_service": project.compose_service if project else "app",
             "healthcheck_url": project.healthcheck_url if project else None,

@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import base64
+import hashlib
 
 from passlib.context import CryptContext
 import jwt
+from cryptography.fernet import Fernet, InvalidToken
 
 from .config import get_settings
 
@@ -36,4 +39,28 @@ def decode_access_token(token: str) -> Optional[dict]:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         return payload
     except jwt.PyJWTError:
+        return None
+
+
+def _build_fernet(secret: str) -> Fernet:
+    digest = hashlib.sha256(secret.encode("utf-8")).digest()
+    key = base64.urlsafe_b64encode(digest)
+    return Fernet(key)
+
+
+def encrypt_secret(value: str) -> str:
+    settings = get_settings()
+    secret = settings.git_credentials_secret_key or settings.jwt_secret_key
+    return _build_fernet(secret).encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_secret(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+
+    settings = get_settings()
+    secret = settings.git_credentials_secret_key or settings.jwt_secret_key
+    try:
+        return _build_fernet(secret).decrypt(value.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
         return None

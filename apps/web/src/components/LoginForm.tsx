@@ -38,6 +38,9 @@ export default function LoginForm() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <img src="/logo.svg" alt="ShipSmith" className="w-12 h-12" />
+          </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">ShipSmith</h1>
           <p className="text-gray-600">Deployment & Feature Flag Control Plane</p>
         </div>

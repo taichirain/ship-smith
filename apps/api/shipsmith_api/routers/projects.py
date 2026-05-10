@@ -3,23 +3,27 @@ import hashlib
 import secrets
 import re
 import json
+import os
 import subprocess
 import tempfile
 import shutil
 import urllib.request
 import urllib.error
+import urllib.parse
+import base64
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ..deps import get_db, get_current_user
 from .. import __version__ as API_VERSION
 from ..config import get_settings
 from ..llm_client import LLMClient
+from ..security import encrypt_secret, decrypt_secret
 from ..schemas import (
     ProjectCreate,
     ProjectResponse,
@@ -42,6 +46,7 @@ from ..schemas import (
     ProjectTargetCreate,
     ProjectTargetUpdate,
     ProjectTargetResponse,
+    GitCredentialType,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -102,6 +107,112 @@ def _get_project_or_404(db: Session, project_id: int):
             detail="Project not found",
         )
     return project
+
+
+def _has_git_credentials(project: Any) -> bool:
+    credential_type = getattr(project, "git_credential_type", "none") or "none"
+    return credential_type != "none" and bool(
+        getattr(project, "git_credential_token_encrypted", None)
+        or getattr(project, "git_credential_ssh_private_key_encrypted", None)
+    )
+
+
+def _normalize_git_credential_type(value: Optional[str]) -> str:
+    credential_type = (value or "none").strip().lower()
+    if credential_type not in {"none", "http_token", "ssh_key"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported git credential type",
+        )
+    return credential_type
+
+
+def _validate_git_credential_payload(
+    credential_type: str,
+    username: Optional[str],
+    token: Optional[str],
+    ssh_private_key: Optional[str],
+) -> None:
+    if credential_type == "http_token" and not (token or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Git token is required for http_token credentials",
+        )
+    if credential_type == "ssh_key" and not (ssh_private_key or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SSH private key is required for ssh_key credentials",
+        )
+    if credential_type == "none" and any((username or "").strip(), (token or "").strip(), (ssh_private_key or "").strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Clear git credentials or choose a credential type",
+        )
+
+
+def _build_git_credential_update(
+    project: Any,
+    credential_type: Optional[str],
+    username: Optional[str],
+    token: Optional[str],
+    ssh_private_key: Optional[str],
+    ssh_known_hosts: Optional[str],
+    is_create: bool = False,
+) -> Dict[str, Any]:
+    current_type = "none" if is_create else _normalize_git_credential_type(getattr(project, "git_credential_type", "none"))
+    next_type = current_type if credential_type is None else _normalize_git_credential_type(credential_type)
+
+    next_username = getattr(project, "git_credential_username", None) if not is_create else None
+    next_token_encrypted = getattr(project, "git_credential_token_encrypted", None) if not is_create else None
+    next_ssh_key_encrypted = getattr(project, "git_credential_ssh_private_key_encrypted", None) if not is_create else None
+    next_known_hosts = getattr(project, "git_credential_ssh_known_hosts", None) if not is_create else None
+
+    if username is not None:
+        next_username = username.strip() or None
+    if token is not None:
+        next_token_encrypted = encrypt_secret(token.strip()) if token.strip() else None
+    if ssh_private_key is not None:
+        next_ssh_key_encrypted = encrypt_secret(ssh_private_key.strip()) if ssh_private_key.strip() else None
+    if ssh_known_hosts is not None:
+        next_known_hosts = ssh_known_hosts.strip() or None
+
+    if next_type == "none":
+        return {
+            "git_credential_type": "none",
+            "git_credential_username": None,
+            "git_credential_token_encrypted": None,
+            "git_credential_ssh_private_key_encrypted": None,
+            "git_credential_ssh_known_hosts": None,
+        }
+
+    token_plain = None if token is None else token
+    ssh_key_plain = None if ssh_private_key is None else ssh_private_key
+    _validate_git_credential_payload(next_type, next_username, token_plain or ("present" if next_token_encrypted else ""), ssh_key_plain or ("present" if next_ssh_key_encrypted else ""))
+
+    if next_type == "http_token":
+        next_ssh_key_encrypted = None
+        next_known_hosts = None
+    elif next_type == "ssh_key":
+        next_token_encrypted = None
+        if not next_username:
+            next_username = "git"
+
+    return {
+        "git_credential_type": next_type,
+        "git_credential_username": next_username,
+        "git_credential_token_encrypted": next_token_encrypted,
+        "git_credential_ssh_private_key_encrypted": next_ssh_key_encrypted,
+        "git_credential_ssh_known_hosts": next_known_hosts,
+    }
+
+
+def _project_response_from_model(project: Any) -> ProjectResponse:
+    response = ProjectResponse.model_validate(project)
+    response.git_credential_token = None
+    response.git_credential_ssh_private_key = None
+    response.git_credential_ssh_known_hosts = None
+    response.git_credential_configured = _has_git_credentials(project)
+    return response
 
 
 def _read_context_file(relative_path: str, max_chars: int = 6000) -> Optional[dict]:
@@ -203,6 +314,15 @@ async def create_project(
     current_user: dict = Depends(get_current_user),
 ):
     Project, ProjectStatus, _, _, ProjectTarget, _, _ = _import_db_models()
+    credential_update = _build_git_credential_update(
+        project=None,
+        credential_type=data.git_credential_type,
+        username=data.git_credential_username,
+        token=data.git_credential_token,
+        ssh_private_key=data.git_credential_ssh_private_key,
+        ssh_known_hosts=data.git_credential_ssh_known_hosts,
+        is_create=True,
+    )
 
     agent_id = _generate_agent_id()
     agent_token = _generate_agent_token()
@@ -213,6 +333,11 @@ async def create_project(
         environment=data.environment,
         git_repo=data.git_repo,
         git_branch=data.git_branch,
+        git_credential_type=credential_update["git_credential_type"],
+        git_credential_username=credential_update["git_credential_username"],
+        git_credential_token_encrypted=credential_update["git_credential_token_encrypted"],
+        git_credential_ssh_private_key_encrypted=credential_update["git_credential_ssh_private_key_encrypted"],
+        git_credential_ssh_known_hosts=credential_update["git_credential_ssh_known_hosts"],
         deploy_workdir=data.deploy_workdir,
         compose_file=data.compose_file,
         compose_service=data.compose_service,
@@ -243,7 +368,7 @@ async def create_project(
     db.commit()
     db.refresh(project)
 
-    response = ProjectResponse.model_validate(project)
+    response = _project_response_from_model(project)
     response.agent_token = agent_token
     return response
 
@@ -313,6 +438,9 @@ async def list_projects(
             "environment": p.environment,
             "git_repo": p.git_repo,
             "git_branch": p.git_branch,
+            "git_credential_type": p.git_credential_type or "none",
+            "git_credential_username": p.git_credential_username,
+            "git_credential_configured": _has_git_credentials(p),
             "deploy_workdir": p.deploy_workdir,
             "deploy_strategy": p.deploy_strategy,
             "health_status": "unknown",
@@ -375,8 +503,12 @@ async def get_project(
     response_data = {
         "id": project.id,
         "name": project.name,
+        "environment": project.environment,
         "git_repo": project.git_repo,
         "git_branch": project.git_branch,
+        "git_credential_type": project.git_credential_type or "none",
+        "git_credential_username": project.git_credential_username,
+        "git_credential_configured": _has_git_credentials(project),
         "deploy_workdir": project.deploy_workdir,
         "compose_file": project.compose_file,
         "compose_service": project.compose_service,
@@ -413,6 +545,15 @@ async def update_project(
             detail="No fields to update",
         )
     
+    credential_fields = {
+        "git_credential_type",
+        "git_credential_username",
+        "git_credential_token",
+        "git_credential_ssh_private_key",
+        "git_credential_ssh_known_hosts",
+    }
+    credential_payload = {field: update_data.pop(field) for field in list(update_data.keys()) if field in credential_fields}
+
     old_values = {}
     new_values = {}
     
@@ -421,6 +562,20 @@ async def update_project(
         old_values[field] = old_val
         new_values[field] = value
         setattr(project, field, value)
+
+    if credential_payload:
+        credential_update = _build_git_credential_update(
+            project=project,
+            credential_type=credential_payload.get("git_credential_type"),
+            username=credential_payload.get("git_credential_username"),
+            token=credential_payload.get("git_credential_token"),
+            ssh_private_key=credential_payload.get("git_credential_ssh_private_key"),
+            ssh_known_hosts=credential_payload.get("git_credential_ssh_known_hosts"),
+        )
+        for field, value in credential_update.items():
+            old_values[field] = getattr(project, field)
+            new_values[field] = "[updated]" if "encrypted" in field else value
+            setattr(project, field, value)
     
     project.updated_at = datetime.utcnow()
     
@@ -436,7 +591,7 @@ async def update_project(
     db.commit()
     db.refresh(project)
     
-    response = ProjectResponse.model_validate(project)
+    response = _project_response_from_model(project)
     if "webhook_secret" in update_data:
         response.webhook_secret = update_data["webhook_secret"]
     return response
@@ -1750,6 +1905,11 @@ async def delete_project_target(
 
 class GitBranchesRequest(BaseModel):
     git_repo: str
+    git_credential_type: GitCredentialType = "none"
+    git_credential_username: Optional[str] = None
+    git_credential_token: Optional[str] = None
+    git_credential_ssh_private_key: Optional[str] = None
+    git_credential_ssh_known_hosts: Optional[str] = None
 
 
 class GitBranchInfo(BaseModel):
@@ -1764,10 +1924,329 @@ class GitBranchesResponse(BaseModel):
     error: Optional[str] = None
 
 
+class ComposeServiceInfo(BaseModel):
+    name: str
+    is_default: bool = False
+
+
+class ComposeServicesRequest(BaseModel):
+    git_repo: str
+    git_branch: str = "main"
+    compose_file: str = "docker-compose.yml"
+    git_credential_type: GitCredentialType = "none"
+    git_credential_username: Optional[str] = None
+    git_credential_token: Optional[str] = None
+    git_credential_ssh_private_key: Optional[str] = None
+    git_credential_ssh_known_hosts: Optional[str] = None
+
+
+class ComposeServicesResponse(BaseModel):
+    services: List[ComposeServiceInfo]
+    compose_file: str
+    success: bool
+    error: Optional[str] = None
+
+
 def _parse_git_repo(git_repo: str) -> str:
     """Normalize git repo URL and return the actual URL for cloning."""
     repo = git_repo.strip()
     return repo
+
+
+def _build_provider_headers(
+    credential_type: str,
+    credential_username: Optional[str],
+    credential_token: Optional[str],
+) -> Dict[str, str]:
+    headers = {"Accept": "application/json"}
+    if credential_type != "http_token" or not credential_token:
+        return headers
+
+    username = (credential_username or "").strip().lower()
+    if username == "token":
+        headers["Authorization"] = f"token {credential_token}"
+    else:
+        headers["Authorization"] = f"Bearer {credential_token}"
+    return headers
+
+
+def _build_authenticated_repo_url(
+    repo: str,
+    credential_type: str,
+    credential_username: Optional[str],
+    credential_token: Optional[str],
+) -> str:
+    if credential_type != "http_token" or not credential_token:
+        return repo
+    parsed = urllib.parse.urlparse(repo)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return repo
+    username = urllib.parse.quote((credential_username or "git").strip(), safe="")
+    token = urllib.parse.quote(credential_token.strip(), safe="")
+    netloc = f"{username}:{token}@{parsed.hostname or ''}"
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return urllib.parse.urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+
+def _select_default_compose_service(service_names: List[str]) -> Optional[str]:
+    if not service_names:
+        return None
+
+    preferred_order = [
+        "app",
+        "web",
+        "server",
+        "api",
+        "backend",
+        "frontend",
+    ]
+    lowered = {name.lower(): name for name in service_names}
+    for preferred in preferred_order:
+        if preferred in lowered:
+            return lowered[preferred]
+
+    return service_names[0]
+
+
+def _extract_compose_services_from_yaml(yaml_content: str) -> ComposeServicesResponse:
+    import yaml
+
+    try:
+        data = yaml.safe_load(yaml_content)
+    except yaml.YAMLError as e:
+        return ComposeServicesResponse(
+            services=[],
+            compose_file="",
+            success=False,
+            error=f"Invalid compose YAML: {e}",
+        )
+
+    if not isinstance(data, dict):
+        return ComposeServicesResponse(
+            services=[],
+            compose_file="",
+            success=False,
+            error="Compose file is not a valid YAML object",
+        )
+
+    services_data = data.get("services")
+    if not isinstance(services_data, dict) or not services_data:
+        return ComposeServicesResponse(
+            services=[],
+            compose_file="",
+            success=False,
+            error="No services found in compose file",
+        )
+
+    service_names = [str(name) for name in services_data.keys()]
+    default_name = _select_default_compose_service(service_names)
+    services = [
+        ComposeServiceInfo(name=name, is_default=name == default_name)
+        for name in service_names
+    ]
+    services.sort(key=lambda item: (0 if item.is_default else 1, item.name.lower()))
+    return ComposeServicesResponse(
+        services=services,
+        compose_file="",
+        success=True,
+        error=None,
+    )
+
+
+def _fetch_compose_file_via_provider_api(
+    git_repo: str,
+    git_branch: str,
+    compose_file: str,
+    credential_type: str = "none",
+    credential_username: Optional[str] = None,
+    credential_token: Optional[str] = None,
+) -> Optional[str]:
+    repo_info = _extract_repo_info(git_repo)
+    if not repo_info:
+        return None
+
+    provider = repo_info["provider"]
+    owner = repo_info["owner"]
+    repo = repo_info["repo"]
+    path = compose_file.strip().lstrip("/")
+    if not path:
+        return None
+
+    headers = _build_provider_headers(credential_type, credential_username, credential_token)
+    headers["Accept"] = "application/json"
+
+    if provider == "github":
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={urllib.parse.quote(git_branch)}"
+    elif provider == "gitee":
+        api_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/contents/{path}?ref={urllib.parse.quote(git_branch)}"
+    else:
+        return None
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=20) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            if not isinstance(data, dict):
+                return None
+            content = data.get("content")
+            encoding = data.get("encoding")
+            if not content or encoding != "base64":
+                return None
+            normalized = content.replace("\n", "")
+            return base64.b64decode(normalized).decode("utf-8")
+    except Exception:
+        return None
+
+
+def _fetch_compose_file_via_git_archive(
+    git_repo: str,
+    git_branch: str,
+    compose_file: str,
+    credential_type: str = "none",
+    credential_username: Optional[str] = None,
+    credential_token: Optional[str] = None,
+    credential_ssh_private_key: Optional[str] = None,
+    credential_ssh_known_hosts: Optional[str] = None,
+) -> ComposeServicesResponse:
+    repo = _build_authenticated_repo_url(
+        _parse_git_repo(git_repo),
+        credential_type,
+        credential_username,
+        credential_token,
+    )
+    temp_dir = None
+    env = None
+    try:
+        temp_dir = tempfile.mkdtemp(prefix="shipsmith-compose-")
+        env = os.environ.copy()
+
+        if credential_type == "ssh_key" and credential_ssh_private_key:
+            ssh_dir = Path(temp_dir) / ".ssh"
+            ssh_dir.mkdir(parents=True, exist_ok=True)
+            key_path = ssh_dir / "id_repo"
+            key_path.write_text(credential_ssh_private_key.strip() + "\n", encoding="utf-8")
+            key_path.chmod(0o600)
+
+            known_hosts_path = ssh_dir / "known_hosts"
+            known_hosts_contents = (credential_ssh_known_hosts or "").strip()
+            if known_hosts_contents:
+                known_hosts_path.write_text(known_hosts_contents + "\n", encoding="utf-8")
+                strict_host = "yes"
+            else:
+                known_hosts_path.touch(mode=0o600)
+                strict_host = "accept-new"
+
+            env["GIT_SSH_COMMAND"] = (
+                f"ssh -i {key_path} -o IdentitiesOnly=yes "
+                f"-o UserKnownHostsFile={known_hosts_path} "
+                f"-o StrictHostKeyChecking={strict_host}"
+            )
+
+        result = subprocess.run(
+            ["git", "archive", f"--remote={repo}", git_branch, compose_file],
+            cwd=temp_dir,
+            capture_output=True,
+            timeout=30,
+            env=env,
+        )
+        if result.returncode != 0:
+            return ComposeServicesResponse(
+                services=[],
+                compose_file=compose_file,
+                success=False,
+                error=result.stderr.decode("utf-8", errors="ignore").strip() or "Failed to read compose file",
+            )
+
+        extract_result = subprocess.run(
+            ["tar", "-x"],
+            cwd=temp_dir,
+            input=result.stdout,
+            capture_output=True,
+            timeout=15,
+        )
+        if extract_result.returncode != 0:
+            return ComposeServicesResponse(
+                services=[],
+                compose_file=compose_file,
+                success=False,
+                error=extract_result.stderr.decode("utf-8", errors="ignore").strip() or "Failed to extract compose file",
+            )
+
+        target_path = Path(temp_dir) / compose_file
+        if not target_path.exists():
+            return ComposeServicesResponse(
+                services=[],
+                compose_file=compose_file,
+                success=False,
+                error=f"Compose file '{compose_file}' not found in branch '{git_branch}'",
+            )
+
+        parsed = _extract_compose_services_from_yaml(target_path.read_text(encoding="utf-8"))
+        parsed.compose_file = compose_file
+        return parsed
+    except subprocess.TimeoutExpired:
+        return ComposeServicesResponse(
+            services=[],
+            compose_file=compose_file,
+            success=False,
+            error="Operation timed out while reading compose file",
+        )
+    except Exception as e:
+        return ComposeServicesResponse(
+            services=[],
+            compose_file=compose_file,
+            success=False,
+            error=str(e) or "Failed to inspect compose file",
+        )
+    finally:
+        if temp_dir and Path(temp_dir).exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _list_compose_services(
+    git_repo: str,
+    git_branch: str,
+    compose_file: str,
+    credential_type: str = "none",
+    credential_username: Optional[str] = None,
+    credential_token: Optional[str] = None,
+    credential_ssh_private_key: Optional[str] = None,
+    credential_ssh_known_hosts: Optional[str] = None,
+) -> ComposeServicesResponse:
+    compose_path = compose_file.strip() or "docker-compose.yml"
+
+    api_content = _fetch_compose_file_via_provider_api(
+        git_repo=git_repo,
+        git_branch=git_branch,
+        compose_file=compose_path,
+        credential_type=credential_type,
+        credential_username=credential_username,
+        credential_token=credential_token,
+    )
+    if api_content is not None:
+        parsed = _extract_compose_services_from_yaml(api_content)
+        parsed.compose_file = compose_path
+        return parsed
+
+    if _is_git_available():
+        return _fetch_compose_file_via_git_archive(
+            git_repo=git_repo,
+            git_branch=git_branch,
+            compose_file=compose_path,
+            credential_type=credential_type,
+            credential_username=credential_username,
+            credential_token=credential_token,
+            credential_ssh_private_key=credential_ssh_private_key,
+            credential_ssh_known_hosts=credential_ssh_known_hosts,
+        )
+
+    return ComposeServicesResponse(
+        services=[],
+        compose_file=compose_path,
+        success=False,
+        error="Git is not installed on the server",
+    )
 
 
 def _extract_repo_info(git_repo: str) -> Optional[Dict[str, str]]:
@@ -1802,7 +2281,12 @@ def _extract_repo_info(git_repo: str) -> Optional[Dict[str, str]]:
     return None
 
 
-def _list_branches_via_api(git_repo: str) -> Optional[GitBranchesResponse]:
+def _list_branches_via_api(
+    git_repo: str,
+    credential_type: str = "none",
+    credential_username: Optional[str] = None,
+    credential_token: Optional[str] = None,
+) -> Optional[GitBranchesResponse]:
     """Try to list branches using the hosting provider's HTTP API.
     
     This works for public repositories without requiring authentication.
@@ -1816,7 +2300,7 @@ def _list_branches_via_api(git_repo: str) -> Optional[GitBranchesResponse]:
     repo = repo_info["repo"]
 
     api_url: Optional[str] = None
-    headers = {"Accept": "application/json"}
+    headers = _build_provider_headers(credential_type, credential_username, credential_token)
 
     if provider == "github":
         api_url = f"https://api.github.com/repos/{owner}/{repo}/branches"
@@ -1916,13 +2400,47 @@ def _is_git_available() -> bool:
         return False
 
 
-def _list_branches_via_git(git_repo: str) -> GitBranchesResponse:
+def _list_branches_via_git(
+    git_repo: str,
+    credential_type: str = "none",
+    credential_username: Optional[str] = None,
+    credential_token: Optional[str] = None,
+    credential_ssh_private_key: Optional[str] = None,
+    credential_ssh_known_hosts: Optional[str] = None,
+) -> GitBranchesResponse:
     """List branches using local git command."""
     repo = _parse_git_repo(git_repo)
 
     temp_dir = None
+    env = None
+    key_path = None
+    known_hosts_path = None
     try:
         temp_dir = tempfile.mkdtemp(prefix="shipsmith-git-")
+        repo = _build_authenticated_repo_url(repo, credential_type, credential_username, credential_token)
+        env = os.environ.copy()
+
+        if credential_type == "ssh_key" and credential_ssh_private_key:
+            ssh_dir = Path(temp_dir) / ".ssh"
+            ssh_dir.mkdir(parents=True, exist_ok=True)
+            key_path = ssh_dir / "id_repo"
+            key_path.write_text(credential_ssh_private_key.strip() + "\n", encoding="utf-8")
+            key_path.chmod(0o600)
+
+            known_hosts_path = ssh_dir / "known_hosts"
+            known_hosts_contents = (credential_ssh_known_hosts or "").strip()
+            if known_hosts_contents:
+                known_hosts_path.write_text(known_hosts_contents + "\n", encoding="utf-8")
+                strict_host = "yes"
+            else:
+                known_hosts_path.touch(mode=0o600)
+                strict_host = "accept-new"
+
+            env["GIT_SSH_COMMAND"] = (
+                f"ssh -i {key_path} -o IdentitiesOnly=yes "
+                f"-o UserKnownHostsFile={known_hosts_path} "
+                f"-o StrictHostKeyChecking={strict_host}"
+            )
 
         result = subprocess.run(
             ["git", "ls-remote", "--heads", repo],
@@ -1930,6 +2448,7 @@ def _list_branches_via_git(git_repo: str) -> GitBranchesResponse:
             capture_output=True,
             text=True,
             timeout=30,
+            env=env,
         )
 
         if result.returncode != 0:
@@ -1969,6 +2488,7 @@ def _list_branches_via_git(git_repo: str) -> GitBranchesResponse:
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env=env,
             )
             if result.returncode == 0 and result.stdout:
                 for line in result.stdout.strip().split("\n"):
@@ -2023,7 +2543,14 @@ def _list_branches_via_git(git_repo: str) -> GitBranchesResponse:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _list_git_branches(git_repo: str) -> GitBranchesResponse:
+def _list_git_branches(
+    git_repo: str,
+    credential_type: str = "none",
+    credential_username: Optional[str] = None,
+    credential_token: Optional[str] = None,
+    credential_ssh_private_key: Optional[str] = None,
+    credential_ssh_known_hosts: Optional[str] = None,
+) -> GitBranchesResponse:
     """List all branches from a remote git repository.
     
     Strategy:
@@ -2042,12 +2569,24 @@ def _list_git_branches(git_repo: str) -> GitBranchesResponse:
             error="Git repository URL is required",
         )
 
-    api_result = _list_branches_via_api(git_repo)
+    api_result = _list_branches_via_api(
+        git_repo,
+        credential_type=credential_type,
+        credential_username=credential_username,
+        credential_token=credential_token,
+    )
     if api_result is not None:
         return api_result
 
     if _is_git_available():
-        return _list_branches_via_git(git_repo)
+        return _list_branches_via_git(
+            git_repo,
+            credential_type=credential_type,
+            credential_username=credential_username,
+            credential_token=credential_token,
+            credential_ssh_private_key=credential_ssh_private_key,
+            credential_ssh_known_hosts=credential_ssh_known_hosts,
+        )
 
     return GitBranchesResponse(
         branches=[],
@@ -2066,4 +2605,28 @@ async def list_git_branches(
     request: GitBranchesRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    return _list_git_branches(request.git_repo)
+    return _list_git_branches(
+        request.git_repo,
+        credential_type=request.git_credential_type,
+        credential_username=request.git_credential_username,
+        credential_token=request.git_credential_token,
+        credential_ssh_private_key=request.git_credential_ssh_private_key,
+        credential_ssh_known_hosts=request.git_credential_ssh_known_hosts,
+    )
+
+
+@router.post("/compose-services", response_model=ComposeServicesResponse)
+async def list_compose_services(
+    request: ComposeServicesRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    return _list_compose_services(
+        git_repo=request.git_repo,
+        git_branch=request.git_branch,
+        compose_file=request.compose_file,
+        credential_type=request.git_credential_type,
+        credential_username=request.git_credential_username,
+        credential_token=request.git_credential_token,
+        credential_ssh_private_key=request.git_credential_ssh_private_key,
+        credential_ssh_known_hosts=request.git_credential_ssh_known_hosts,
+    )

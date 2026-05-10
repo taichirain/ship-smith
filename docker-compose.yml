@@ -31,6 +31,7 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: shipsmith
       JWT_SECRET_KEY: change-me-in-production
+      GIT_CREDENTIALS_SECRET_KEY: dev-git-credentials-secret-change-me
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin123
     ports:

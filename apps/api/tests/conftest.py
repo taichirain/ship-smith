@@ -75,6 +75,7 @@ def test_project(test_session: Session):
         name="test-project",
         git_repo="https://github.com/test/repo.git",
         git_branch="main",
+        git_credential_type="none",
         deploy_workdir="/opt/test",
         compose_file="docker-compose.yml",
         compose_service="app",

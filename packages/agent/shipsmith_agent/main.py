@@ -185,13 +185,25 @@ class Agent:
 
             try:
                 git_branch = task.get("git_branch", "main")
+                git_repo = task.get("git_repo")
                 compose_file = task.get("compose_file", "docker-compose.yml")
+                git_credential_type = task.get("git_credential_type", "none")
+                git_credential_username = task.get("git_credential_username")
+                git_credential_token = task.get("git_credential_token")
+                git_credential_ssh_private_key = task.get("git_credential_ssh_private_key")
+                git_credential_ssh_known_hosts = task.get("git_credential_ssh_known_hosts")
 
                 current_phase = "git_fetch"
                 actual_commit = deployer.deploy(
+                    git_repo=git_repo,
                     target_commit=commit_hash,
                     branch=git_branch,
                     strategy=deploy_strategy,
+                    git_credential_type=git_credential_type,
+                    git_credential_username=git_credential_username,
+                    git_credential_token=git_credential_token,
+                    git_credential_ssh_private_key=git_credential_ssh_private_key,
+                    git_credential_ssh_known_hosts=git_credential_ssh_known_hosts,
                     compose_file=compose_file,
                 )
 

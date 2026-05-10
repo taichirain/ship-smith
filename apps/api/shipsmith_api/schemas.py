@@ -16,6 +16,7 @@ class LoginRequest(BaseModel):
 
 
 EnvironmentType = Literal["production", "staging", "development", "testing", "other"]
+GitCredentialType = Literal["none", "http_token", "ssh_key"]
 
 
 class ProjectBase(BaseModel):
@@ -23,6 +24,11 @@ class ProjectBase(BaseModel):
     environment: Optional[EnvironmentType] = None
     git_repo: str
     git_branch: str = Field(default="main", max_length=64)
+    git_credential_type: GitCredentialType = "none"
+    git_credential_username: Optional[str] = Field(default=None, max_length=256)
+    git_credential_token: Optional[str] = None
+    git_credential_ssh_private_key: Optional[str] = None
+    git_credential_ssh_known_hosts: Optional[str] = None
     deploy_workdir: str
     compose_file: str = Field(default="docker-compose.yml", max_length=256)
     compose_service: str = Field(default="app", max_length=128)
@@ -48,6 +54,11 @@ class ProjectUpdate(BaseModel):
     environment: Optional[EnvironmentType] = None
     git_repo: Optional[str] = None
     git_branch: Optional[str] = Field(default=None, max_length=64)
+    git_credential_type: Optional[GitCredentialType] = None
+    git_credential_username: Optional[str] = Field(default=None, max_length=256)
+    git_credential_token: Optional[str] = None
+    git_credential_ssh_private_key: Optional[str] = None
+    git_credential_ssh_known_hosts: Optional[str] = None
     deploy_workdir: Optional[str] = None
     compose_file: Optional[str] = Field(default=None, max_length=256)
     compose_service: Optional[str] = Field(default=None, max_length=128)
@@ -99,6 +110,7 @@ class ProjectResponse(ProjectBase):
     agent_id: str
     agent_token: Optional[str] = Field(default=None, description="仅在创建时返回一次")
     webhook_secret: Optional[str] = Field(default=None, description="仅在创建/编辑时返回")
+    git_credential_configured: bool = False
     webhook_endpoint_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime

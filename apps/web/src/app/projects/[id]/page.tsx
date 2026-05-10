@@ -82,6 +82,7 @@ import {
   InstallCommandResponse,
   InstallCommandRequest,
   TargetPlatform,
+  GitCredentialType,
 } from '@/lib/api';
 
 function formatDate(dateStr: string | null) {
@@ -862,6 +863,11 @@ export default function ProjectDetailPage() {
       environment: project.environment || null,
       git_repo: project.git_repo,
       git_branch: project.git_branch,
+      git_credential_type: project.git_credential_type || 'none',
+      git_credential_username: project.git_credential_username || '',
+      git_credential_token: '',
+      git_credential_ssh_private_key: '',
+      git_credential_ssh_known_hosts: '',
       deploy_workdir: project.deploy_workdir,
       compose_file: project.compose_file,
       compose_service: project.compose_service,
@@ -1229,7 +1235,7 @@ export default function ProjectDetailPage() {
                         CPU
                       </div>
                       <span className="text-lg font-mono font-semibold">
-                        {projectStatus.cpu_percent !== undefined
+                        {projectStatus.cpu_percent != null
                           ? `${projectStatus.cpu_percent}%`
                           : '—'}
                       </span>
@@ -1240,8 +1246,8 @@ export default function ProjectDetailPage() {
                         Memory
                       </div>
                       <span className="text-sm font-mono font-semibold">
-                        {projectStatus.mem_used_mb !== undefined &&
-                        projectStatus.mem_total_mb !== undefined
+                        {projectStatus.mem_used_mb != null &&
+                        projectStatus.mem_total_mb != null
                           ? `${projectStatus.mem_used_mb}/${projectStatus.mem_total_mb} MB`
                           : '—'}
                       </span>
@@ -1252,7 +1258,7 @@ export default function ProjectDetailPage() {
                         Disk
                       </div>
                       <span className="text-lg font-mono font-semibold">
-                        {projectStatus.disk_used_percent !== undefined
+                        {projectStatus.disk_used_percent != null
                           ? `${projectStatus.disk_used_percent}%`
                           : '—'}
                       </span>
@@ -3091,6 +3097,29 @@ flags_sync_interval_seconds: 30`}
                     </div>
                     <div>
                       <label className="label flex items-center justify-between">
+                        <span>Git Credentials</span>
+                        <span className="text-xs text-gray-400 font-normal">私有仓库访问</span>
+                      </label>
+                      <select
+                        className="input"
+                        value={(editFormData.git_credential_type as GitCredentialType) || 'none'}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            git_credential_type: e.target.value as GitCredentialType,
+                          })
+                        }
+                      >
+                        <option value="none">No credentials</option>
+                        <option value="http_token">HTTP token</option>
+                        <option value="ssh_key">SSH private key</option>
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {project?.git_credential_configured ? '已配置凭据。敏感字段留空表示保持不变。' : '当前未配置仓库凭据。'}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="label flex items-center justify-between">
                         <span>Branch</span>
                         <span className="text-xs text-gray-400 font-normal">部署分支</span>
                       </label>
@@ -3111,6 +3140,92 @@ flags_sync_interval_seconds: 30`}
                       </p>
                     </div>
                   </div>
+
+                  {(editFormData.git_credential_type || 'none') === 'http_token' ? (
+                    <div className="grid grid-cols-1 gap-4 mt-4">
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
+                        <p className="font-medium">HTTP Token 说明</p>
+                        <p className="mt-1">`Git Username` 一般填代码托管平台用户名，`Access Token` 填平台后台生成的个人访问令牌。</p>
+                        <p className="mt-1">GitHub: Settings → Developer settings → Personal access tokens。</p>
+                        <p className="mt-1">GitLab: User Settings → Access Tokens。Gitee: 设置 → 私人令牌。</p>
+                        <p className="mt-1">如果你是长期部署环境，优先使用 `SSH private key`。</p>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="label">Git Username</label>
+                          <input
+                            type="text"
+                            className="input"
+                            value={(editFormData.git_credential_username as string) || ''}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                git_credential_username: e.target.value,
+                              })
+                            }
+                            placeholder="GitHub 用户名 / x-access-token / GitLab 用户名"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">
+                            GitHub 常见填法：你的用户名，或 `x-access-token`
+                          </p>
+                        </div>
+                        <div>
+                          <label className="label">Access Token</label>
+                          <input
+                            type="password"
+                            className="input"
+                            value={(editFormData.git_credential_token as string) || ''}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                git_credential_token: e.target.value,
+                              })
+                            }
+                            placeholder="留空则保持现有 token"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">
+                            需要具备读取仓库权限
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {(editFormData.git_credential_type || 'none') === 'ssh_key' ? (
+                    <div className="grid grid-cols-1 gap-4 mt-4">
+                      <div>
+                        <label className="label">SSH Private Key</label>
+                        <textarea
+                          className="input min-h-[160px]"
+                          value={(editFormData.git_credential_ssh_private_key as string) || ''}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              git_credential_ssh_private_key: e.target.value,
+                            })
+                          }
+                          placeholder="留空则保持现有私钥"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                          推荐使用只读 Deploy Key，或专门用于部署的 SSH 私钥
+                        </p>
+                      </div>
+                      <div>
+                        <label className="label">Known Hosts</label>
+                        <textarea
+                          className="input min-h-[96px]"
+                          value={(editFormData.git_credential_ssh_known_hosts as string) || ''}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              git_credential_ssh_known_hosts: e.target.value,
+                            })
+                          }
+                          placeholder="留空则保持现有 known_hosts"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="border-t border-gray-200 pt-4">

@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { 
   Plus, 
-  ExternalLink, 
   FolderGit2, 
   Search, 
   Clock, 
@@ -13,7 +12,8 @@ import {
   GitCommit,
   Radio,
   ChevronDown,
-  CheckCircle
+  CheckCircle,
+  ChevronRight
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { api, Project } from '@/lib/api';
@@ -158,7 +158,7 @@ function ProjectCard({ project }: { project: Project }) {
           </div>
         </div>
         
-        <ExternalLink className="w-5 h-5 text-gray-400 flex-shrink-0" />
+        <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-primary-500 flex-shrink-0 transition-colors" />
       </div>
     </Link>
   );

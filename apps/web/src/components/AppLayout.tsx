@@ -42,7 +42,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center gap-2">
-            <Box className="w-6 h-6 text-primary-600" />
+            <img src="/logo.svg" alt="ShipSmith" className="w-6 h-6" />
             <span className="text-lg font-semibold text-gray-900">ShipSmith</span>
           </div>
         </div>

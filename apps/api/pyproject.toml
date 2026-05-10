@@ -17,6 +17,8 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "pyjwt>=2.8.0",
     "python-multipart>=0.0.9",
+    "cryptography>=46.0.0",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]

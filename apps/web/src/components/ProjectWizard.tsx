@@ -15,7 +15,7 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
-import { api, Project, EnvironmentType, GitBranchInfo } from '@/lib/api';
+import { api, Project, EnvironmentType, GitBranchInfo, GitCredentialType, ComposeServiceInfo } from '@/lib/api';
 
 const STEPS = [
   {
@@ -58,11 +58,18 @@ const ENVIRONMENT_OPTIONS: { value: EnvironmentType; label: string; color: strin
   { value: 'other', label: '其他', color: 'bg-gray-100 text-gray-800 border-gray-200' },
 ];
 
+const PROJECT_WIZARD_DRAFT_KEY = 'shipsmith_project_wizard_draft_v1';
+
 interface WizardFormData {
   name: string;
   environment: EnvironmentType | null;
   git_repo: string;
   git_branch: string;
+  git_credential_type: GitCredentialType;
+  git_credential_username: string;
+  git_credential_token: string;
+  git_credential_ssh_private_key: string;
+  git_credential_ssh_known_hosts: string;
   deploy_workdir: string;
   flags_file_path: string;
   compose_file: string;
@@ -94,6 +101,11 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     environment: null,
     git_repo: '',
     git_branch: 'main',
+    git_credential_type: 'none',
+    git_credential_username: '',
+    git_credential_token: '',
+    git_credential_ssh_private_key: '',
+    git_credential_ssh_known_hosts: '',
     deploy_workdir: '',
     flags_file_path: '',
     compose_file: 'docker-compose.yml',
@@ -105,6 +117,10 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
   const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
+  const [composeServices, setComposeServices] = useState<ComposeServiceInfo[]>([]);
+  const [loadingComposeServices, setLoadingComposeServices] = useState(false);
+  const [composeServiceError, setComposeServiceError] = useState<string | null>(null);
+  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
 
   const loadBranches = useCallback(async (gitRepo: string) => {
     const trimmed = gitRepo.trim();
@@ -117,7 +133,14 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     try {
       setLoadingBranches(true);
       setBranchError(null);
-      const result = await api.listGitBranches(trimmed);
+      const result = await api.listGitBranches({
+        git_repo: trimmed,
+        git_credential_type: formData.git_credential_type,
+        git_credential_username: formData.git_credential_username || null,
+        git_credential_token: formData.git_credential_token || null,
+        git_credential_ssh_private_key: formData.git_credential_ssh_private_key || null,
+        git_credential_ssh_known_hosts: formData.git_credential_ssh_known_hosts || null,
+      });
 
       if (result.success && result.branches.length > 0) {
         setGitBranches(result.branches);
@@ -135,7 +158,73 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     } finally {
       setLoadingBranches(false);
     }
-  }, [formData.git_branch]);
+  }, [
+    formData.git_branch,
+    formData.git_credential_type,
+    formData.git_credential_username,
+    formData.git_credential_token,
+    formData.git_credential_ssh_private_key,
+    formData.git_credential_ssh_known_hosts,
+  ]);
+
+  const loadComposeServices = useCallback(async () => {
+    const gitRepo = formData.git_repo.trim();
+    const gitBranch = formData.git_branch.trim();
+    const composeFile = formData.compose_file.trim();
+
+    if (!gitRepo || !gitBranch || !composeFile) {
+      setComposeServices([]);
+      setComposeServiceError(null);
+      return;
+    }
+
+    try {
+      setLoadingComposeServices(true);
+      setComposeServiceError(null);
+      const result = await api.listComposeServices({
+        git_repo: gitRepo,
+        git_branch: gitBranch,
+        compose_file: composeFile,
+        git_credential_type: formData.git_credential_type,
+        git_credential_username: formData.git_credential_username || null,
+        git_credential_token: formData.git_credential_token || null,
+        git_credential_ssh_private_key: formData.git_credential_ssh_private_key || null,
+        git_credential_ssh_known_hosts: formData.git_credential_ssh_known_hosts || null,
+      });
+
+      if (result.success && result.services.length > 0) {
+        setComposeServices(result.services);
+        const defaultService = result.services.find((item) => item.is_default);
+        if (defaultService) {
+          setFormData((prev) => ({
+            ...prev,
+            compose_service:
+              !prev.compose_service || prev.compose_service === 'app'
+                ? defaultService.name
+                : prev.compose_service,
+          }));
+        }
+      } else {
+        setComposeServices([]);
+        setComposeServiceError(result.error || 'No services found');
+      }
+    } catch (err: any) {
+      setComposeServices([]);
+      setComposeServiceError(err.message || 'Failed to inspect compose file');
+    } finally {
+      setLoadingComposeServices(false);
+    }
+  }, [
+    formData.git_repo,
+    formData.git_branch,
+    formData.compose_file,
+    formData.compose_service,
+    formData.git_credential_type,
+    formData.git_credential_username,
+    formData.git_credential_token,
+    formData.git_credential_ssh_private_key,
+    formData.git_credential_ssh_known_hosts,
+  ]);
 
   useEffect(() => {
     const trimmed = formData.git_repo.trim();
@@ -150,7 +239,103 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [formData.git_repo, loadBranches]);
+  }, [
+    formData.git_repo,
+    formData.git_credential_type,
+    formData.git_credential_username,
+    formData.git_credential_token,
+    formData.git_credential_ssh_private_key,
+    formData.git_credential_ssh_known_hosts,
+    loadBranches,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || hasLoadedDraft) return;
+    const raw = window.localStorage.getItem(PROJECT_WIZARD_DRAFT_KEY);
+    if (!raw) {
+      setHasLoadedDraft(true);
+      return;
+    }
+
+    try {
+      const draft = JSON.parse(raw);
+      const shouldRestore = window.confirm('检测到未完成的项目草稿，是否恢复？\n\n注意：Access Token 和 SSH 私钥不会被恢复，需要重新输入。');
+      if (shouldRestore) {
+        if (typeof draft.currentStep === 'number') {
+          setCurrentStep(Math.max(0, Math.min(STEPS.length - 1, draft.currentStep)));
+        }
+        setFormData((prev) => ({
+          ...prev,
+          ...draft.formData,
+          git_credential_token: '',
+          git_credential_ssh_private_key: '',
+        }));
+      }
+    } catch {
+      window.localStorage.removeItem(PROJECT_WIZARD_DRAFT_KEY);
+    } finally {
+      setHasLoadedDraft(true);
+    }
+  }, [hasLoadedDraft]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadComposeServices();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [loadComposeServices]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasLoadedDraft) return;
+
+    const { git_credential_token, git_credential_ssh_private_key, ...safeFormData } = formData;
+    const isEmpty = !Object.values(safeFormData).some((value) => {
+      if (typeof value === 'string') return value.trim() !== '' && value !== 'main' && value !== 'docker-compose.yml' && value !== 'app';
+      if (typeof value === 'number') return value !== 10;
+      return value !== null && value !== undefined;
+    });
+
+    if (isEmpty && currentStep === 0) {
+      window.localStorage.removeItem(PROJECT_WIZARD_DRAFT_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(PROJECT_WIZARD_DRAFT_KEY, JSON.stringify({
+      currentStep,
+      formData: safeFormData,
+    }));
+  }, [formData, currentStep, hasLoadedDraft]);
+
+  const clearDraft = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(PROJECT_WIZARD_DRAFT_KEY);
+    }
+  };
+
+  const isDirty = (): boolean => {
+    return Object.entries(formData).some(([key, value]) => {
+      if (key === 'environment') return value !== null;
+      if (typeof value === 'number') return value !== 10;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (key === 'git_branch') return trimmed !== '' && trimmed !== 'main';
+        if (key === 'compose_file') return trimmed !== '' && trimmed !== 'docker-compose.yml';
+        if (key === 'compose_service') return trimmed !== '' && trimmed !== 'app';
+        return trimmed !== '';
+      }
+      return false;
+    }) || currentStep > 0;
+  };
+
+  const handleClose = () => {
+    if (isDirty()) {
+      const confirmed = window.confirm('当前向导有未保存内容，关闭后将保留草稿但敏感凭据不会保存。确定关闭吗？');
+      if (!confirmed) return;
+    }
+    onClose();
+  };
+
+  const draftActive = hasLoadedDraft && isDirty();
 
   const updateField = <K extends keyof WizardFormData>(
     field: K,
@@ -247,6 +432,11 @@ ${formData.healthcheck_url ? `health_check:
         environment: formData.environment || undefined,
         git_repo: formData.git_repo,
         git_branch: formData.git_branch || 'main',
+        git_credential_type: formData.git_credential_type,
+        git_credential_username: formData.git_credential_username || null,
+        git_credential_token: formData.git_credential_token || null,
+        git_credential_ssh_private_key: formData.git_credential_ssh_private_key || null,
+        git_credential_ssh_known_hosts: formData.git_credential_ssh_known_hosts || null,
         deploy_workdir: formData.deploy_workdir,
         flags_file_path: formData.flags_file_path,
         healthcheck_url: formData.healthcheck_url || null,
@@ -255,6 +445,7 @@ ${formData.healthcheck_url ? `health_check:
         compose_service: formData.compose_service,
         healthcheck_timeout_seconds: formData.healthcheck_timeout_seconds,
       });
+      clearDraft();
       onSuccess(project);
     } catch (err: any) {
       onError(err.message || '创建项目失败');
@@ -334,6 +525,93 @@ ${formData.healthcheck_url ? `health_check:
               <p className="text-xs text-gray-500 mt-1">
                 支持 SSH 或 HTTPS 协议
               </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="label">Git 凭据</label>
+                <select
+                  className="input"
+                  value={formData.git_credential_type}
+                  onChange={(e) => updateField('git_credential_type', e.target.value as GitCredentialType)}
+                >
+                  <option value="none">不使用凭据</option>
+                  <option value="http_token">HTTP Token</option>
+                  <option value="ssh_key">SSH 私钥</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  私有仓库需要配置访问凭据，分支探测和 Agent 部署会共用这套配置
+                </p>
+              </div>
+
+              {formData.git_credential_type === 'http_token' ? (
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
+                    <p className="font-medium">HTTP Token 说明</p>
+                    <p className="mt-1">`Git 用户名` 一般填代码托管平台用户名，`Access Token` 填平台生成的个人访问令牌。</p>
+                    <p className="mt-1">GitHub: Settings → Developer settings → Personal access tokens。</p>
+                    <p className="mt-1">GitLab: User Settings → Access Tokens。Gitee: 设置 → 私人令牌。</p>
+                    <p className="mt-1">如果是长期部署，优先考虑改用 `SSH 私钥`。</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Git 用户名</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={formData.git_credential_username}
+                        onChange={(e) => updateField('git_credential_username', e.target.value)}
+                        placeholder="GitHub 用户名 / x-access-token / GitLab 用户名"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        GitHub 常见填法：你的用户名，或 `x-access-token`
+                      </p>
+                    </div>
+                    <div>
+                      <label className="label">Access Token</label>
+                      <input
+                        type="password"
+                        className="input"
+                        value={formData.git_credential_token}
+                        onChange={(e) => updateField('git_credential_token', e.target.value)}
+                        placeholder="平台生成的 PAT / Access Token"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        至少需要仓库读取权限
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {formData.git_credential_type === 'ssh_key' ? (
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="label">SSH 私钥</label>
+                    <textarea
+                      className="input min-h-[160px]"
+                      value={formData.git_credential_ssh_private_key}
+                      onChange={(e) => updateField('git_credential_ssh_private_key', e.target.value)}
+                      placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      推荐使用只读 Deploy Key，或专门用于部署的 SSH 私钥
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">Known Hosts</label>
+                    <textarea
+                      className="input min-h-[96px]"
+                      value={formData.git_credential_ssh_known_hosts}
+                      onChange={(e) => updateField('git_credential_ssh_known_hosts', e.target.value)}
+                      placeholder="github.com ssh-ed25519 AAAA..."
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      留空时首次连接会采用 `accept-new`
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div>
@@ -460,16 +738,38 @@ ${formData.healthcheck_url ? `health_check:
                 主服务名称
                 <span className="text-red-500 ml-1">*</span>
               </label>
-              <input
-                type="text"
-                className="input"
-                value={formData.compose_service}
-                onChange={(e) => updateField('compose_service', e.target.value)}
-                placeholder="app"
-              />
+              {composeServices.length > 0 ? (
+                <select
+                  className="input"
+                  value={formData.compose_service}
+                  onChange={(e) => updateField('compose_service', e.target.value)}
+                >
+                  {composeServices.map((service) => (
+                    <option key={service.name} value={service.name}>
+                      {service.name}
+                      {service.is_default ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  className="input"
+                  value={formData.compose_service}
+                  onChange={(e) => updateField('compose_service', e.target.value)}
+                  placeholder="app"
+                />
+              )}
               <p className="text-xs text-gray-500 mt-1">
-                docker-compose.yml 中定义的主要应用服务名称，用于健康检查判定
+                {loadingComposeServices
+                  ? '正在从仓库探测 compose 服务...'
+                  : composeServices.length > 0
+                    ? `已自动识别 ${composeServices.length} 个服务`
+                    : 'docker-compose.yml 中定义的主要应用服务名称，用于健康检查判定'}
               </p>
+              {composeServiceError ? (
+                <p className="text-xs text-red-500 mt-1">{composeServiceError} - 可手动输入</p>
+              ) : null}
             </div>
 
             <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
@@ -634,7 +934,7 @@ ${formData.healthcheck_url ? `health_check:
             <h2 className="text-lg font-semibold text-gray-900">创建新项目</h2>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="text-gray-400 hover:text-gray-600"
             >
               <X className="w-6 h-6" />
@@ -687,10 +987,18 @@ ${formData.healthcheck_url ? `health_check:
           {renderStepContent()}
         </div>
 
+        {draftActive ? (
+          <div className="px-6 pb-3">
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              草稿已自动保存。重新打开可恢复；Access Token 和 SSH 私钥不会被保存。
+            </div>
+          </div>
+        ) : null}
+
         <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
           <button
             type="button"
-            onClick={currentStep === 0 ? onClose : goPrev}
+            onClick={currentStep === 0 ? handleClose : goPrev}
             className="btn btn-secondary"
           >
             {currentStep === 0 ? (

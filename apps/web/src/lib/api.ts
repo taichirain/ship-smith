@@ -6,6 +6,7 @@ export interface TokenResponse {
 }
 
 export type EnvironmentType = 'production' | 'staging' | 'development' | 'testing' | 'other';
+export type GitCredentialType = 'none' | 'http_token' | 'ssh_key';
 
 export interface Project {
   id: number;
@@ -13,6 +14,12 @@ export interface Project {
   environment?: EnvironmentType | null;
   git_repo: string;
   git_branch: string;
+  git_credential_type: GitCredentialType;
+  git_credential_username?: string | null;
+  git_credential_token?: string | null;
+  git_credential_ssh_private_key?: string | null;
+  git_credential_ssh_known_hosts?: string | null;
+  git_credential_configured?: boolean;
   deploy_workdir: string;
   compose_file: string;
   compose_service: string;
@@ -55,6 +62,11 @@ export interface ProjectUpdate {
   environment?: EnvironmentType | null;
   git_repo?: string;
   git_branch?: string;
+  git_credential_type?: GitCredentialType;
+  git_credential_username?: string | null;
+  git_credential_token?: string | null;
+  git_credential_ssh_private_key?: string | null;
+  git_credential_ssh_known_hosts?: string | null;
   deploy_workdir?: string;
   compose_file?: string;
   compose_service?: string;
@@ -387,6 +399,32 @@ export interface GitBranchesResponse {
   repo: string;
   success: boolean;
   error: string | null;
+}
+
+export interface ComposeServiceInfo {
+  name: string;
+  is_default: boolean;
+}
+
+export interface ComposeServicesRequest extends GitBranchesRequest {
+  git_branch: string;
+  compose_file: string;
+}
+
+export interface ComposeServicesResponse {
+  services: ComposeServiceInfo[];
+  compose_file: string;
+  success: boolean;
+  error: string | null;
+}
+
+export interface GitBranchesRequest {
+  git_repo: string;
+  git_credential_type?: GitCredentialType;
+  git_credential_username?: string | null;
+  git_credential_token?: string | null;
+  git_credential_ssh_private_key?: string | null;
+  git_credential_ssh_known_hosts?: string | null;
 }
 
 export type TimeRange = '24h' | '7d';
@@ -774,10 +812,12 @@ export const api = {
     return request<{ ok: boolean; webhook_secret: string; webhook_endpoint: string }>('POST', `/v1/projects/${projectId}/generate-webhook-secret`);
   },
 
-  async listGitBranches(gitRepo: string): Promise<GitBranchesResponse> {
-    return request<GitBranchesResponse>('POST', `/v1/projects/git-branches`, {
-      git_repo: gitRepo,
-    });
+  async listGitBranches(data: GitBranchesRequest): Promise<GitBranchesResponse> {
+    return request<GitBranchesResponse>('POST', `/v1/projects/git-branches`, data);
+  },
+
+  async listComposeServices(data: ComposeServicesRequest): Promise<ComposeServicesResponse> {
+    return request<ComposeServicesResponse>('POST', `/v1/projects/compose-services`, data);
   },
 
   async listProjectTargets(projectId: number): Promise<ProjectTarget[]> {

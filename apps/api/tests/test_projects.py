@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
+from shipsmith_api.security import decrypt_secret
 
 
 class TestProjects:
@@ -12,6 +13,9 @@ class TestProjects:
                 "name": "new-project",
                 "git_repo": "https://github.com/test/new-repo.git",
                 "git_branch": "develop",
+                "git_credential_type": "http_token",
+                "git_credential_username": "git",
+                "git_credential_token": "secret-token",
                 "deploy_workdir": "/opt/new-project",
                 "compose_file": "docker-compose.yml",
                 "compose_service": "app",
@@ -25,6 +29,9 @@ class TestProjects:
         data = response.json()
         assert data["name"] == "new-project"
         assert data["git_branch"] == "develop"
+        assert data["git_credential_type"] == "http_token"
+        assert data["git_credential_configured"] is True
+        assert data["git_credential_token"] is None
         assert "agent_id" in data
         assert "agent_token" in data
         assert len(data["agent_token"]) > 0
@@ -60,6 +67,9 @@ class TestProjects:
             json={
                 "name": "updated-project",
                 "git_branch": "feature-branch",
+                "git_credential_type": "http_token",
+                "git_credential_username": "git",
+                "git_credential_token": "updated-token",
             },
         )
         assert response.status_code == 200
@@ -67,6 +77,43 @@ class TestProjects:
         assert data["name"] == "updated-project"
         assert data["git_branch"] == "feature-branch"
         assert data["git_repo"] == test_project.git_repo
+        assert data["git_credential_configured"] is True
+        assert decrypt_secret(test_project.git_credential_token_encrypted) == "updated-token"
+
+    @patch("shipsmith_api.routers.projects._is_git_available")
+    @patch("shipsmith_api.routers.projects.subprocess.run")
+    def test_list_git_branches_with_http_token(self, mock_run, mock_is_git_available, client: TestClient, auth_headers):
+        mock_is_git_available.return_value = True
+
+        heads_result = type("Result", (), {
+            "returncode": 0,
+            "stdout": "abc\trefs/heads/main\nbcd\trefs/heads/develop\n",
+            "stderr": "",
+        })()
+        head_ref_result = type("Result", (), {
+            "returncode": 0,
+            "stdout": "ref: refs/heads/main\tHEAD\nabc\tHEAD\n",
+            "stderr": "",
+        })()
+        mock_run.side_effect = [heads_result, head_ref_result]
+
+        response = client.post(
+            "/api/v1/projects/git-branches",
+            headers=auth_headers,
+            json={
+                "git_repo": "https://github.com/test/private-repo.git",
+                "git_credential_type": "http_token",
+                "git_credential_username": "git",
+                "git_credential_token": "secret-token",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["branches"][0]["name"] == "main"
+        first_call = mock_run.call_args_list[0]
+        assert "secret-token" in first_call.args[0][3]
 
     def test_update_project_empty_payload(self, client: TestClient, auth_headers, test_project):
         response = client.patch(
