@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>概述 - ShipSmith 文档</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>ShipSmith</h1>
+        <p>部署自动化 + Feature Flag 控制平面</p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">文档</div>
+          <ul class="nav-links">
+<li><a href="index.html" class="active">概述</a></li>
+<li><a href="quickstart.html" class="">快速入门</a></li>
+<li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="agent.html" class="">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="">Feature Flag</a></li>
+<li><a href="api-reference.html" class="">API 参考</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="content">
+        <h1 class="page-title">概述</h1>
+        <p class="page-desc">ShipSmith 项目概览</p>
+        <article>
+<h1>ShipSmith</h1>
+<p>部署自动化 + Feature Flag 控制平面。</p>
+<h2>简介</h2>
+<p>ShipSmith 是一个轻量级的部署自动化和 Feature Flag 管理工具。</p>
+<p>- <strong>一键部署</strong>：从 Git 仓库自动部署到你的服务器</p>
+<p>- <strong>即时回滚</strong>：一键回滚到任意历史成功版本</p>
+<p>- <strong>Feature Flag</strong>：控制功能开关，无需重新部署</p>
+<p>- <strong>Agent 架构</strong>：轻量 Agent 在目标服务器运行，与控制平面解耦</p>
+<h2>架构</h2>
+<pre><code class="language-">
+┌─────────────────────────────────────────────────────────┐
+│  Web Panel (Next.js)     │     Admin User           │
+└──────────────┬──────────────┴────────────────────────┘
+               │ HTTP /api/*
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│  Core API (FastAPI)    │     Control Plane     │
+│  + PostgreSQL              │     (Port 8000)        │
+└──────────────┬──────────────┴────────────────────────┘
+               │
+         ┌─────┼─────┐
+         ▼     ▼     ▼
+      ┌─────┐ ┌─────┐ ┌─────┐
+      │Agent│ │Agent│ │Agent│   目标服务器
+      │ #1  │ │ #2  │ │ #n  │
+      └─────┘ └─────┘ └─────┘
+</code></pre>
+<h2>快速开始</h2>
+<h3>1. 启动数据库</h3>
+<p>确保 PostgreSQL 运行在 localhost:5432，创建数据库：</p>
+<pre><code class="language-bash">
+createdb shipsmith
+</code></pre>
+<h3>2. 运行 migration</h3>
+<pre><code class="language-bash">
+bash dev.sh db-init
+</code></pre>
+<h3>3. 启动 Core API</h3>
+<pre><code class="language-bash">
+bash dev.sh start-api
+</code></pre>
+<p>API 文档: http://localhost:8000/docs</p>
+<h3>4. 启动 Web Panel</h3>
+<pre><code class="language-bash">
+cd apps/web
+npm install
+npm run dev
+</code></pre>
+<p>访问: http://localhost:3000</p>
+<p>默认账号: <code>admin</code> / <code>admin123</code></p>
+<h2>目录结构</h2>
+<pre><code class="language-">
+shipsmith/
+├── apps/
+│   ├── web/          # Next.js 管理面板
+│   └── api/          # FastAPI Core API
+├── packages/
+│   ├── config/        # 共享配置和协议定义
+│   ├── db/            # 数据库模型和 migrations
+│   ├── agent/         # 部署 Agent
+│   └── sdk/           # Node.js Feature Flag SDK
+├── docs/
+│   ├── PRD.md
+│   └── user-guide/   # 用户手册
+└── dev.sh             # 开发脚本
+</code></pre>
+<h2>功能清单</h2>
+<p>- [x] Phase 0: 协议和配置</p>
+<p>- [x] Phase 1: 数据库和 Core 骨架</p>
+<p>- [x] Phase 2: Agent 最小闭环</p>
+<p>- [x] Phase 3: 回滚和健康</p>
+<p>- [x] Phase 4: Feature Flag 和 SDK</p>
+<p>- [x] Phase 5: Panel 最小可用界面</p>
+<p>- [x] Phase 6: Agent 打包分发</p>
+<h2>环境变量</h2>
+<tr><td>变量</td><td>说明</td><td>默认值</td></tr>
+<tr><td><code>DATABASE_URL</code></td><td>数据库连接字符串</td><td><code>postgresql://postgres:postgres@localhost:5432/shipsmith</code></td></tr>
+<tr><td><code>JWT_SECRET_KEY</code></td><td>JWT 签名密钥</td><td><code>change-me-in-production-please</code></td></tr>
+<tr><td><code>ADMIN_USERNAME</code></td><td>管理员用户名</td><td><code>admin</code></td></tr>
+<tr><td><code>ADMIN_PASSWORD</code></td><td>管理员密码</td><td><code>admin123</code></td></tr>
+<h2>开发</h2>
+<pre><code class="language-bash">
+# 同时启动 API 和 Web
+bash dev.sh all
+
+# 打包 Agent 二进制
+bash dev.sh package-agent 1.0.0
+</code></pre>
+<h2>License</h2>
+<p>MIT</p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

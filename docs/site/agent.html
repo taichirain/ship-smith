@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent 详解 - ShipSmith 文档</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>ShipSmith</h1>
+        <p>部署自动化 + Feature Flag 控制平面</p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">文档</div>
+          <ul class="nav-links">
+<li><a href="index.html" class="">概述</a></li>
+<li><a href="quickstart.html" class="">快速入门</a></li>
+<li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="agent.html" class="active">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="">Feature Flag</a></li>
+<li><a href="api-reference.html" class="">API 参考</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="content">
+        <h1 class="page-title">Agent 详解</h1>
+        <p class="page-desc">Agent 架构、安装与运行原理</p>
+        <article>
+<h1>Agent 详解</h1>
+<p>Agent 是运行在目标服务器上的轻量进程，负责执行部署任务、上报状态和同步 Feature Flag。</p>
+<h2>运行原理</h2>
+<p>Agent 采用 <strong>主动轮询</strong> 模式，而非 Core 主动推送：</p>
+<pre><code class="language-">
+  Agent                        Core API
+   │                             │
+   ├─ 每 30s 轮询 ──────────────→│  GET /agents/tasks
+   │←───────── 任务（或无任务） ──┤
+   │                             │
+   ├─ 领取任务 ─────────────────→│  POST /tasks/:id/start
+   │←──────── status=running ────┤
+   │                             │
+   ├─ 执行 git / docker compose   │
+   │                             │
+   ├─ 增量回传日志 ─────────────→│  POST /tasks/:id/logs
+   │                             │
+   ├─ 完成任务 ─────────────────→│  POST /tasks/:id/finish
+   │←──── status=success/failed ─┤
+</code></pre>
+<p>这种设计的优势：</p>
+<p>- <strong>无需 SSH</strong>：目标服务器不需要开放入站端口</p>
+<p>- <strong>无需 Core 主动连接</strong>：Agent 在 NAT 或防火墙后也能工作</p>
+<p>- <strong>天然异步</strong>：Agent 离线不影响 Core 的正常运行</p>
+<h2>环境变量</h2>
+<tr><td>变量</td><td>必填</td><td>说明</td></tr>
+<tr><td><code>SHIPSMITH_CORE_URL</code></td><td>✅</td><td>Core API 地址，如 <code>http://core-host:8000/api/v1</code></td></tr>
+<tr><td><code>SHIPSMITH_AGENT_TOKEN</code></td><td>✅</td><td>Agent 鉴权 Token（创建项目时获取）</td></tr>
+<tr><td><code>SHIPSMITH_WORKDIR</code></td><td>✅</td><td>部署工作目录，如 <code>/opt/myapp</code></td></tr>
+<tr><td><code>SHIPSMITH_POLL_INTERVAL</code></td><td>❌</td><td>任务轮询间隔（秒），默认 30</td></tr>
+<tr><td><code>SHIPSMITH_HEARTBEAT_INTERVAL</code></td><td>❌</td><td>心跳间隔（秒），默认 30</td></tr>
+<tr><td><code>SHIPSMITH_FLAGS_INTERVAL</code></td><td>❌</td><td>Flag 同步间隔（秒），默认 30</td></tr>
+<h2>安装方式</h2>
+<h3>方式 1：一键安装命令（推荐）</h3>
+<p>在项目接入页点击 <strong>Generate Install Command</strong>，生成包含所有参数的安装命令，在目标服务器执行即可。</p>
+<p><strong>systemd 模式：</strong></p>
+<pre><code class="language-bash">
+curl -fsSL https://shipsmith.example.com/install.sh | sh -s -- \
+  --project-id &lt;ID&gt; \
+  --agent-id &lt;AGENT_ID&gt; \
+  --core-url "http://your-core-host:8000/api/v1" \
+  --token "&lt;TOKEN&gt;" \
+  --workdir "/opt/myapp"
+</code></pre>
+<p>脚本会自动：</p>
+<p>1. 下载 Agent 二进制</p>
+<p>2. 写入 <code>/etc/shipsmith/env</code> 配置文件</p>
+<p>3. 安装 systemd service</p>
+<p>4. 启动 Agent 服务</p>
+<p><strong>Docker 模式：</strong></p>
+<pre><code class="language-bash">
+docker run -d --name shipsmith-agent-&lt;ID&gt; \
+  --restart always \
+  -e SHIPSMITH_CORE_URL="http://your-core-host:8000/api/v1" \
+  -e SHIPSMITH_AGENT_TOKEN="&lt;TOKEN&gt;" \
+  -e SHIPSMITH_PROJECT_ID=&lt;ID&gt; \
+  -e SHIPSMITH_AGENT_ID=&lt;AGENT_ID&gt; \
+  -e SHIPSMITH_WORKDIR="/opt/myapp" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /opt/myapp:/opt/myapp \
+  shipsmith/agent:latest
+</code></pre>
+<p>需要挂载 Docker socket 以便 Agent 在容器内执行 <code>docker compose</code> 命令。</p>
+<h3>方式 2：手动安装</h3>
+<p>接入页提供完整的手动安装步骤，适合无法直接执行安装命令的场景：</p>
+<p>- 手动下载 Agent 二进制</p>
+<p>- 配置环境变量或 <code>.env</code> 文件</p>
+<p>- 使用 systemd、supervisor 或 screen 管理进程</p>
+<p>- 手动启动 Agent</p>
+<h2>任务生命周期</h2>
+<pre><code class="language-">
+queued → running → success
+                  → failed
+                  → rolled_back
+                  → rollback_failed
+</code></pre>
+<tr><td>状态</td><td>说明</td></tr>
+<tr><td><code>queued</code></td><td>任务已创建，等待 Agent 领取</td></tr>
+<tr><td><code>running</code></td><td>Agent 已领取并正在执行</td></tr>
+<tr><td><code>success</code></td><td>部署成功</td></tr>
+<tr><td><code>failed</code></td><td>部署失败</td></tr>
+<tr><td><code>rolled_back</code></td><td>回滚成功</td></tr>
+<tr><td><code>rollback_failed</code></td><td>回滚失败</td></tr>
+<p><strong>超时机制</strong>：Agent 领取任务后，lease 有效期为 300 秒。Agent 定期发送 heartbeat 续期。如果 Core 未收到 heartbeat，任务自动标记为 <code>failed</code>。</p>
+<h2>多目标部署（v0.6+）</h2>
+<p>一个项目可以绑定多台 Agent（project_targets），一次部署创建多个 DeploymentTarget 记录：</p>
+<p>- <strong>all-at-once 模式</strong>：所有目标同时变为 <code>queued</code>，各自 Agent 可同时领取</p>
+<p>- <strong>rolling 模式</strong>：按 <code>order_index</code> 顺序，当前目标成功后推进下一个</p>
+<p>Agent 本身不感知多机部署——它只领取属于自己的 <code>agent_id</code> 的任务并执行。编排逻辑在 Core 侧完成。</p>
+<h2>心跳与健康</h2>
+<p>Agent 每 30 秒（可配置）发送心跳到 Core：</p>
+<pre><code class="language-json">
+{
+  "runtime": {
+    "os_name": "Ubuntu",
+    "shell": "/bin/bash",
+    "docker_compose_command": "docker compose"
+  },
+  "system": {
+    "cpu_percent": 45.2,
+    "mem_used_mb": 2048,
+    "mem_total_mb": 8192,
+    "disk_used_percent": 62.1
+  },
+  "containers": [
+    {"service": "app", "status": "running"},
+    {"service": "db", "status": "running"}
+  ],
+  "app_health": {
+    "status": "healthy",
+    "response_ms": 120,
+    "http_status": 200
+  },
+  "agent_version": "1.0.0"
+}
+</code></pre>
+<p>Core 根据心跳数据：</p>
+<p>- 更新 <code>project_status</code> 快照</p>
+<p>- 判断 Agent 在线状态（超过 10 分钟无心跳 → agent_offline 告警）</p>
+<p>- 记录首次上线时间（<code>agent_first_seen_at</code>）</p>
+<p>- 跟踪健康状态变化（healthy ↔ degraded ↔ unhealthy）</p>
+<h2>常见排障</h2>
+<tr><td>问题</td><td>可能原因</td><td>检查方式</td></tr>
+<tr><td>Agent 未上线</td><td>Core URL 不可达</td><td>检查网络连通性和防火墙</td></tr>
+<tr><td>Token 无效</td><td>token 已 rotate 或错误</td><td>在项目页重新生成并更新配置</td></tr>
+<tr><td>部署卡住</td><td>任务 lease 过期</td><td>等待 5 分钟自动超时，或手动取消</td></tr>
+<tr><td>日志不更新</td><td>Agent 进程异常</td><td>检查 systemd 状态：<code>systemctl status shipsmith-agent</code></td></tr>
+<tr><td>Docker 命令失败</td><td>Docker socket 未挂载</td><td>检查 <code>/var/run/docker.sock</code> 是否存在</td></tr>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API 参考 - ShipSmith 文档</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>ShipSmith</h1>
+        <p>部署自动化 + Feature Flag 控制平面</p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">文档</div>
+          <ul class="nav-links">
+<li><a href="index.html" class="">概述</a></li>
+<li><a href="quickstart.html" class="">快速入门</a></li>
+<li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="agent.html" class="">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="">Feature Flag</a></li>
+<li><a href="api-reference.html" class="active">API 参考</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="content">
+        <h1 class="page-title">API 参考</h1>
+        <p class="page-desc">完整的 API 文档</p>
+        <article>
+<h1>API 参考</h1>
+<h2>基础信息</h2>
+<p>- <strong>Base URL</strong>: <code>http://localhost:8000/api/v1</code></p>
+<p>- <strong>认证方式</strong>: Bearer Token</p>
+<p>- <strong>API 文档</strong>: <code>http://localhost:8000/docs</code> (Swagger UI)</p>
+<hr>
+<h2>Panel API（管理员使用）</h2>
+<h3>1. 认证</h3>
+<h4>POST `/auth/login`</h4>
+<p>OAuth2 密码授权登录。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-">
+POST /api/v1/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&amp;password=admin123
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">
+{
+  "access_token": "eyJ0eXAiOiJKV1Qi...",
+  "token_type": "bearer"
+}
+</code></pre>
+<hr>
+<h3>2. 项目管理</h3>
+<h4>GET `/projects`</h4>
+<p>获取项目列表。</p>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">
+[
+  {
+    "id": 1,
+    "name": "my-saas",
+    "git_repo": "git@github.com:user/repo.git",
+    "git_branch": "main",
+    "deploy_workdir": "/opt/my-saas",
+    "deploy_strategy": "compose-build",
+    "created_at": "2026-05-08T10:00:00Z",
+    "updated_at": "2026-05-08T10:00:00Z"
+  }
+]
+</code></pre>
+<h4>GET `/projects/{id}`</h4>
+<p>获取项目详情。</p>
+<h4>POST `/projects`</h4>
+<p>创建新项目。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-json">
+{
+  "name": "my-saas",
+  "git_repo": "git@github.com:user/repo.git",
+  "git_branch": "main",
+  "deploy_workdir": "/opt/my-saas",
+  "flags_file_path": "/var/lib/shipsmith/my-saas/flags.json",
+  "deploy_strategy": "compose-build",
+  "healthcheck_url": "http://127.0.0.1:3000/api/health"
+}
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">
+{
+  "id": 1,
+  "name": "my-saas",
+  "agent_id": "agent-550e8400e29b",
+  "agent_token": "s3cr3t-t0k3n",
+  "...": "..."
+}
+</code></pre>
+<p><blockquote>⚠️ <code>agent_token</code> 只会在创建时返回一次，请妥善保存。</blockquote></p>
+<hr>
+<h3>3. 部署管理</h3>
+<h4>POST `/projects/{project_id}/deploy`</h4>
+<p>触发新部署。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-json">
+{
+  "commit_hash": "abc123...",
+  "trigger_source": "manual"
+}
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">
+{
+  "id": 1,
+  "project_id": 1,
+  "kind": "deploy",
+  "status": "queued",
+  "commit_hash": "abc123...",
+  "queued_at": "2026-05-08T10:00:00Z"
+}
+</code></pre>
+<h4>POST `/projects/{project_id}/rollback`</h4>
+<p>回滚到历史成功部署。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-json">
+{
+  "target_deployment_id": 5
+}
+</code></pre>
+<h4>GET `/projects/{project_id}/deployments`</h4>
+<p>获取部署历史列表。</p>
+<h4>GET `/deployments/{id}`</h4>
+<p>获取单个部署详情。</p>
+<h4>GET `/deployments/{id}/logs`</h4>
+<p>获取部署日志。</p>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">
+[
+  {
+    "id": 1,
+    "deployment_id": 1,
+    "seq": 0,
+    "phase": "git_fetch",
+    "content": "$ git fetch --all --prune",
+    "created_at": "2026-05-08T10:00:00Z"
+  }
+]
+</code></pre>
+<hr>
+<h3>4. Feature Flag</h3>
+<h4>GET `/projects/{project_id}/flags`</h4>
+<p>获取项目所有 Flag。</p>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">
+[
+  {
+    "id": 1,
+    "project_id": 1,
+    "key": "new_feature",
+    "enabled": true,
+    "description": "Enable new UI",
+    "version": 3,
+    "updated_at": "2026-05-08T10:00:00Z"
+  }
+]
+</code></pre>
+<h4>POST `/projects/{project_id}/flags`</h4>
+<p>创建新 Flag。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-json">
+{
+  "key": "new_feature",
+  "enabled": false,
+  "description": "Enable new UI"
+}
+</code></pre>
+<h4>PATCH `/flags/{id}`</h4>
+<p>修改 Flag。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-json">
+{
+  "enabled": true
+}
+</code></pre>
+<p>> 每次 <code>enabled</code> 变更会增加 <code>version</code> 并记录审计。</p>
+<h4>GET `/projects/{project_id}/flags/audits`</h4>
+<p>获取 Flag 变更审计历史。</p>
+<hr>
+<h2>Agent API（Agent 使用）</h2>
+<p>所有 Agent API 使用 <code>agent_token</code> 进行认证：</p>
+<pre><code class="language-">
+Authorization: Bearer &lt;agent_token&gt;
+</code></pre>
+<h3>GET `/agents/tasks`</h3>
+<p>轮询待执行任务。</p>
+<p><strong>Response (有任务时):</strong></p>
+<pre><code class="language-json">
+{
+  "task": {
+    "id": 1,
+    "project_id": 1,
+    "kind": "deploy",
+    "commit_hash": "abc123...",
+    "deploy_strategy": "compose-build",
+    "created_at": "2026-05-08T10:00:00Z"
+  },
+  "message": "Task available"
+}
+</code></pre>
+<p><strong>Response (无任务时):</strong></p>
+<pre><code class="language-json">
+{
+  "task": null,
+  "message": "No pending tasks"
+}
+</code></pre>
+<hr>
+<h3>POST `/agents/tasks/{task_id}/start`</h3>
+<p>标记任务开始执行。</p>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">
+{
+  "ok": true,
+  "task_id": 1,
+  "status": "running",
+  "started_at": "2026-05-08T10:00:00Z"
+}
+</code></pre>
+<hr>
+<h3>POST `/agents/tasks/{task_id}/logs`</h3>
+<p>增量追加日志。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-json">
+{
+  "phase": "git_fetch",
+  "seq": 0,
+  "content": "$ git fetch --all --prune"
+}
+</code></pre>
+<p>> <code>seq</code> 用于去重和排序。</p>
+<hr>
+<h3>POST `/agents/tasks/{task_id}/finish`</h3>
+<p>标记任务完成。</p>
+<p><strong>Request (成功):</strong></p>
+<pre><code class="language-json">
+{
+  "status": "success",
+  "commit_hash": "abc123..."
+}
+</code></pre>
+<p><strong>Request (失败):</strong></p>
+<pre><code class="language-json">
+{
+  "status": "failed",
+  "error_code": "docker_build_failed",
+  "error_message": "Docker image build exited with code 1"
+}
+</code></pre>
+<p><strong>状态值:</strong></p>
+<tr><td>值</td><td>说明</td></tr>
+<tr><td><code>success</code></td><td>部署成功</td></tr>
+<tr><td><code>failed</code></td><td>部署失败</td></tr>
+<tr><td><code>rolled_back</code></td><td>回滚成功</td></tr>
+<tr><td><code>rollback_failed</code></td><td>回滚失败</td></tr>
+<hr>
+<h3>POST `/agents/heartbeat`</h3>
+<p>上报心跳和系统状态。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-json">
+{
+  "system": {
+    "cpu_percent": 15.2,
+    "mem_used_mb": 2048,
+    "mem_total_mb": 8192,
+    "disk_used_percent": 45.5
+  },
+  "containers": [
+    {
+      "service": "app",
+      "status": "Up 2 hours",
+      "image": "my-app:latest"
+    }
+  ],
+  "app_health": {
+    "status": "healthy",
+    "response_ms": 45,
+    "http_status": 200
+  }
+}
+</code></pre>
+<hr>
+<h3>GET `/agents/flags/sync`</h3>
+<p>同步 Feature Flags（按版本号）。</p>
+<p><strong>Request:</strong></p>
+<pre><code class="language-">
+GET /api/v1/agents/flags/sync?current_version=3
+</code></pre>
+<p><strong>Response (无变更):</strong></p>
+<pre><code class="language-json">
+{
+  "version": 3,
+  "flags": null,
+  "changed": false
+}
+</code></pre>
+<p><strong>Response (有变更):</strong></p>
+<pre><code class="language-json">
+{
+  "version": 5,
+  "flags": {
+    "new_feature": true,
+    "beta_mode": false
+  },
+  "changed": true
+}
+</code></pre>
+<hr>
+<h2>状态枚举</h2>
+<h3>部署状态</h3>
+<tr><td>值</td><td>说明</td></tr>
+<tr><td><code>queued</code></td><td>排队中</td></tr>
+<tr><td><code>running</code></td><td>执行中</td></tr>
+<tr><td><code>success</code></td><td>成功</td></tr>
+<tr><td><code>failed</code></td><td>失败</td></tr>
+<tr><td><code>cancelled</code></td><td>已取消</td></tr>
+<tr><td><code>rolled_back</code></td><td>回滚成功</td></tr>
+<tr><td><code>rollback_failed</code></td><td>回滚失败</td></tr>
+<tr><td><code>skipped</code></td><td>已跳过</td></tr>
+<h3>健康状态</h3>
+<tr><td>值</td><td>说明</td></tr>
+<tr><td><code>healthy</code></td><td>健康（绿色）</td></tr>
+<tr><td><code>degraded</code></td><td>降级（黄色）</td></tr>
+<tr><td><code>unhealthy</code></td><td>不健康（红色）</td></tr>
+<tr><td><code>unknown</code></td><td>未知（灰色）</td></tr>
+<h3>错误码</h3>
+<tr><td>值</td><td>说明</td></tr>
+<tr><td><code>git_fetch_failed</code></td><td>Git fetch 失败</td></tr>
+<tr><td><code>git_checkout_failed</code></td><td>Git checkout 失败</td></tr>
+<tr><td><code>git_reset_failed</code></td><td>Git reset 失败</td></tr>
+<tr><td><code>docker_build_failed</code></td><td>Docker build 失败</td></tr>
+<tr><td><code>docker_pull_failed</code></td><td>Docker pull 失败</td></tr>
+<tr><td><code>docker_up_failed</code></td><td>Docker compose up 失败</td></tr>
+<tr><td><code>health_check_failed</code></td><td>健康检查失败</td></tr>
+<tr><td><code>agent_disconnected</code></td><td>Agent 断连</td></tr>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

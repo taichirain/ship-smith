@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Box, LayoutDashboard, Package, LogOut, Loader } from 'lucide-react';
+import { Box, LayoutDashboard, Package, BookOpen, LogOut, Loader } from 'lucide-react';
 import { getToken, clearToken } from '@/lib/api';
 
 interface AppLayoutProps {
@@ -70,6 +70,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <Package className="w-5 h-5" />
             Projects
           </Link>
+          <a
+            href="/docs/index.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            <BookOpen className="w-5 h-5" />
+            Guide
+          </a>
         </nav>
 
         <div className="p-4 border-t border-gray-200">

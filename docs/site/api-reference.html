@@ -20,6 +20,8 @@
 <li><a href="index.html" class="">概述</a></li>
 <li><a href="quickstart.html" class="">快速入门</a></li>
 <li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="agent.html" class="">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="">Feature Flag</a></li>
 <li><a href="api-reference.html" class="active">API 参考</a></li>
           </ul>
         </div>
@@ -261,10 +263,10 @@ Authorization: Bearer &lt;agent_token&gt;
 </code></pre>
 <p><strong>状态值:</strong></p>
 <tr><td>值</td><td>说明</td></tr>
-<tr><td>`success`</td><td>部署成功</td></tr>
-<tr><td>`failed`</td><td>部署失败</td></tr>
-<tr><td>`rolled_back`</td><td>回滚成功</td></tr>
-<tr><td>`rollback_failed`</td><td>回滚失败</td></tr>
+<tr><td><code>success</code></td><td>部署成功</td></tr>
+<tr><td><code>failed</code></td><td>部署失败</td></tr>
+<tr><td><code>rolled_back</code></td><td>回滚成功</td></tr>
+<tr><td><code>rollback_failed</code></td><td>回滚失败</td></tr>
 <hr>
 <h3>POST `/agents/heartbeat`</h3>
 <p>上报心跳和系统状态。</p>
@@ -321,30 +323,30 @@ GET /api/v1/agents/flags/sync?current_version=3
 <h2>状态枚举</h2>
 <h3>部署状态</h3>
 <tr><td>值</td><td>说明</td></tr>
-<tr><td>`queued`</td><td>排队中</td></tr>
-<tr><td>`running`</td><td>执行中</td></tr>
-<tr><td>`success`</td><td>成功</td></tr>
-<tr><td>`failed`</td><td>失败</td></tr>
-<tr><td>`cancelled`</td><td>已取消</td></tr>
-<tr><td>`rolled_back`</td><td>回滚成功</td></tr>
-<tr><td>`rollback_failed`</td><td>回滚失败</td></tr>
-<tr><td>`skipped`</td><td>已跳过</td></tr>
+<tr><td><code>queued</code></td><td>排队中</td></tr>
+<tr><td><code>running</code></td><td>执行中</td></tr>
+<tr><td><code>success</code></td><td>成功</td></tr>
+<tr><td><code>failed</code></td><td>失败</td></tr>
+<tr><td><code>cancelled</code></td><td>已取消</td></tr>
+<tr><td><code>rolled_back</code></td><td>回滚成功</td></tr>
+<tr><td><code>rollback_failed</code></td><td>回滚失败</td></tr>
+<tr><td><code>skipped</code></td><td>已跳过</td></tr>
 <h3>健康状态</h3>
 <tr><td>值</td><td>说明</td></tr>
-<tr><td>`healthy`</td><td>健康（绿色）</td></tr>
-<tr><td>`degraded`</td><td>降级（黄色）</td></tr>
-<tr><td>`unhealthy`</td><td>不健康（红色）</td></tr>
-<tr><td>`unknown`</td><td>未知（灰色）</td></tr>
+<tr><td><code>healthy</code></td><td>健康（绿色）</td></tr>
+<tr><td><code>degraded</code></td><td>降级（黄色）</td></tr>
+<tr><td><code>unhealthy</code></td><td>不健康（红色）</td></tr>
+<tr><td><code>unknown</code></td><td>未知（灰色）</td></tr>
 <h3>错误码</h3>
 <tr><td>值</td><td>说明</td></tr>
-<tr><td>`git_fetch_failed`</td><td>Git fetch 失败</td></tr>
-<tr><td>`git_checkout_failed`</td><td>Git checkout 失败</td></tr>
-<tr><td>`git_reset_failed`</td><td>Git reset 失败</td></tr>
-<tr><td>`docker_build_failed`</td><td>Docker build 失败</td></tr>
-<tr><td>`docker_pull_failed`</td><td>Docker pull 失败</td></tr>
-<tr><td>`docker_up_failed`</td><td>Docker compose up 失败</td></tr>
-<tr><td>`health_check_failed`</td><td>健康检查失败</td></tr>
-<tr><td>`agent_disconnected`</td><td>Agent 断连</td></tr>
+<tr><td><code>git_fetch_failed</code></td><td>Git fetch 失败</td></tr>
+<tr><td><code>git_checkout_failed</code></td><td>Git checkout 失败</td></tr>
+<tr><td><code>git_reset_failed</code></td><td>Git reset 失败</td></tr>
+<tr><td><code>docker_build_failed</code></td><td>Docker build 失败</td></tr>
+<tr><td><code>docker_pull_failed</code></td><td>Docker pull 失败</td></tr>
+<tr><td><code>docker_up_failed</code></td><td>Docker compose up 失败</td></tr>
+<tr><td><code>health_check_failed</code></td><td>健康检查失败</td></tr>
+<tr><td><code>agent_disconnected</code></td><td>Agent 断连</td></tr>
         </article>
       </div>
     </main>

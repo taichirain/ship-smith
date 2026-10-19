@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>快速入门 - ShipSmith 文档</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>ShipSmith</h1>
+        <p>部署自动化 + Feature Flag 控制平面</p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">文档</div>
+          <ul class="nav-links">
+<li><a href="index.html" class="">概述</a></li>
+<li><a href="quickstart.html" class="active">快速入门</a></li>
+<li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="agent.html" class="">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="">Feature Flag</a></li>
+<li><a href="api-reference.html" class="">API 参考</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="content">
+        <h1 class="page-title">快速入门</h1>
+        <p class="page-desc">5 分钟内搭建 ShipSmith</p>
+        <article>
+<h1>快速入门</h1>
+<p>本指南将帮助你在 5 分钟内用 Docker Compose 搭建并运行 ShipSmith。</p>
+<h2>前置要求</h2>
+<p>- <strong>Docker</strong> 24+</p>
+<p>- <strong>Docker Compose</strong> v2+</p>
+<h2>步骤 1：启动服务</h2>
+<pre><code class="language-bash">
+cd ship-smith
+docker compose up -d
+</code></pre>
+<p>Docker Compose 会自动启动三个服务：</p>
+<tr><td>服务</td><td>端口</td><td>说明</td></tr>
+<tr><td><strong>PostgreSQL</strong></td><td><code>15436</code></td><td>数据库</td></tr>
+<tr><td><strong>API</strong></td><td><code>8000</code></td><td>Core API 服务</td></tr>
+<tr><td><strong>Web</strong></td><td><code>3000</code></td><td>Web 管理面板</td></tr>
+<p>首次启动会自动运行数据库迁移（Alembic），无需手动执行。</p>
+<h2>步骤 2：登录</h2>
+<p>打开浏览器访问 <strong>http://localhost:3000</strong>，使用默认账号登录：</p>
+<p>- <strong>用户名</strong>: <code>admin</code></p>
+<p>- <strong>密码</strong>: <code>admin123</code></p>
+<p><blockquote>⚠️ 生产环境请务必修改默认密码！</blockquote></p>
+<h2>步骤 3：创建你的第一个项目</h2>
+<p>登录后：</p>
+<p>1. 点击 <strong>New Project</strong></p>
+<p>2. 填写项目信息：</p>
+<p>   - <strong>Project Name</strong>: 项目名称（如 <code>my-saas</code>）</p>
+<p>   - <strong>Git Repository</strong>: Git 仓库地址（如 <code>git@github.com:user/my-saas.git</code>）</p>
+<p>   - <strong>Git Branch</strong>: 默认分支（如 <code>main</code>）</p>
+<p>   - <strong>Deploy Workdir</strong>: Agent 执行命令的目录（如 <code>/opt/my-saas</code>）</p>
+<p>   - <strong>Flags File Path</strong>: Feature Flag JSON 文件路径（如 <code>/var/lib/shipsmith/my-saas/flags.json</code>）</p>
+<p>3. 点击 <strong>Create Project</strong></p>
+<p>创建成功后，你会看到 <strong>Agent 接入引导页</strong>，包含一键安装命令和手动安装步骤。</p>
+<h2>步骤 4：安装 Agent（一键安装）</h2>
+<p>在项目接入页中，点击 <strong>Generate Install Command</strong> 生成安装命令，然后在目标服务器上执行：</p>
+<h3>systemd 模式（推荐）</h3>
+<pre><code class="language-bash">
+curl -fsSL https://shipsmith.example.com/install.sh | sh -s -- \
+  --project-id &lt;ID&gt; \
+  --agent-id &lt;AGENT_ID&gt; \
+  --core-url "http://your-core-host:8000/api/v1" \
+  --token "&lt;TOKEN&gt;" \
+  --workdir "/opt/myapp"
+</code></pre>
+<h3>Docker 模式</h3>
+<pre><code class="language-bash">
+docker run -d --name shipsmith-agent-&lt;ID&gt; \
+  --restart always \
+  -e SHIPSMITH_CORE_URL="http://your-core-host:8000/api/v1" \
+  -e SHIPSMITH_AGENT_TOKEN="&lt;TOKEN&gt;" \
+  -e SHIPSMITH_PROJECT_ID=&lt;ID&gt; \
+  -e SHIPSMITH_AGENT_ID=&lt;AGENT_ID&gt; \
+  -e SHIPSMITH_WORKDIR="/opt/myapp" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /opt/myapp:/opt/myapp \
+  shipsmith/agent:latest
+</code></pre>
+<p>接入页会<strong>自动轮询 Agent 在线状态</strong>，当 Agent 首次心跳到达时，状态会从 <code>WAITING</code> 变为 <code>ONLINE</code>。</p>
+<h3>离线安装 / 手动安装</h3>
+<p>如果目标服务器无法直接执行安装命令，可以使用手动安装步骤：</p>
+<p>- 下载 Agent 二进制并手动配置环境变量</p>
+<p>- 配置 systemd 服务或 supervisor</p>
+<p>- 手动启动 Agent</p>
+<p>接入页提供完整的手动安装指引。</p>
+<h2>步骤 5：触发第一次部署</h2>
+<p>在 Web Panel 中：</p>
+<p>1. 进入项目详情页</p>
+<p>2. 选择部署模式：</p>
+<p>   - <strong>All-at-once</strong>: 所有目标机器同时部署（速度优先）</p>
+<p>   - <strong>Rolling</strong>: 按顺序逐台部署（稳定性优先）</p>
+<p>3. 点击 <strong>Deploy</strong> 按钮</p>
+<p>4. Agent 会自动：</p>
+<p>   - <code>git fetch</code> 最新代码</p>
+<p>   - <code>git checkout</code> 到指定分支</p>
+<p>   - <code>docker compose build</code>（或 <code>pull</code>）</p>
+<p>   - <code>docker compose up -d</code></p>
+<p>   - 回传日志和状态</p>
+<p>部署详情页会展示每台目标机器的执行状态和日志。</p>
+<h2>多机部署（v0.6+）</h2>
+<p>一个项目可以绑定多台服务器。在项目设置页的<strong>"部署目标"</strong>区块中：</p>
+<p>- 查看已绑定的目标机器列表</p>
+<p>- 新增目标：输入 Agent ID 和名称</p>
+<p>- 调整顺序（影响 rolling 发布的执行顺序）</p>
+<p>- 启用/禁用目标</p>
+<p>- 一次部署自动下发到所有启用目标</p>
+<p>支持两种发布策略：</p>
+<p>- <strong>All-at-once</strong>: 并行部署到所有目标，速度更快</p>
+<p>- <strong>Rolling</strong>: 按顺序逐台部署，某一台失败时暂停后续发布</p>
+<h2>下一步</h2>
+<p>| 了解 <a href="./agent.html">Agent 运行原理</a></p>
+<p>- 查看 <a href="./feature-flags.html">Feature Flag 使用指南</a></p>
+<p>- 查看 <a href="./api-reference.md">API 参考</a> 获取完整 API 列表</p>
+<p>- 在项目详情页设置 Webhook，实现 Git push 自动部署</p>
+<p>- 配置通知渠道，接收部署和健康状态告警</p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>架构说明 - ShipSmith 文档</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>ShipSmith</h1>
+        <p>部署自动化 + Feature Flag 控制平面</p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">文档</div>
+          <ul class="nav-links">
+<li><a href="index.html" class="">概述</a></li>
+<li><a href="quickstart.html" class="">快速入门</a></li>
+<li><a href="architecture.html" class="active">架构说明</a></li>
+<li><a href="agent.html" class="">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="">Feature Flag</a></li>
+<li><a href="api-reference.html" class="">API 参考</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="content">
+        <h1 class="page-title">架构说明</h1>
+        <p class="page-desc">了解 ShipSmith 的系统设计</p>
+        <article>
+<h1>架构说明</h1>
+<h2>整体架构</h2>
+<p>ShipSmith 采用经典的 <strong>控制平面 + Agent</strong> 架构：</p>
+<pre><code class="language-">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Control Plane                                   │
+├─────────────────────────────────┬───────────────────────────────────────────┤
+│  Web Panel (Next.js)            │  Core API (FastAPI)                      │
+│  - 项目管理                      │  - 部署任务管理                          │
+│  - 部署触发                      │  - Agent 任务调度                         │
+│  - 回滚操作                      │  - Feature Flag 同步                       │
+│  - Feature Flag 管理            │  - 健康状态聚合                          │
+└─────────────────────────────────┴───────────────────────────────────────────┘
+                                          │
+                                          │ HTTP (Bearer Token)
+                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             Target Server                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Agent                                                                      │
+│  - 轮询任务 (30s)                                                           │
+│  - 执行部署 (git + docker compose)                                          │
+│  - 心跳上报 (CPU/内存/磁盘)                                                  │
+│  - Flag 同步 (JSON 文件)                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+</code></pre>
+<p><strong>控制平面</strong>（Core API + Web Panel）部署在管理服务器上，<strong>Agent</strong> 部署在每台目标服务器上。两者通过 HTTP 通信，Agent 主动轮询 Core 领取任务。</p>
+<h2>组件说明</h2>
+<h3>1. Web Panel (`apps/web`)</h3>
+<p>基于 <strong>Next.js 14</strong> 的管理界面，提供：</p>
+<p>- 仪表盘、项目列表、创建项目</p>
+<p>- 项目详情（部署历史、Feature Flag、通知配置）</p>
+<p>- 一键部署 / 回滚 / 重试</p>
+<p>- Agent 接入引导（一键安装命令）</p>
+<p>- 部署日志查看和失败分析</p>
+<h3>2. Core API (`apps/api`)</h3>
+<p>基于 <strong>FastAPI</strong> 的控制平面，提供两类 API：</p>
+<p>- <strong>Panel API</strong>（管理员）：登录、项目 CRUD、部署触发/回滚、Flag CRUD</p>
+<p>- <strong>Agent API</strong>（Agent 使用）：任务轮询、日志回传、状态上报、心跳、Flag 同步</p>
+<h3>3. Database (`packages/db`)</h3>
+<p>基于 <strong>SQLAlchemy</strong> + <strong>Alembic</strong>，主要表结构：</p>
+<tr><td>表名</td><td>用途</td></tr>
+<tr><td><code>users</code></td><td>管理员账号</td></tr>
+<tr><td><code>projects</code></td><td>项目配置（含 agent_token_hash）</td></tr>
+<tr><td><code>project_targets</code></td><td>多机部署目标（v0.6+）</td></tr>
+<tr><td><code>deployments</code></td><td>部署记录</td></tr>
+<tr><td><code>deployment_targets</code></td><td>目标级执行记录</td></tr>
+<tr><td><code>deployment_logs</code></td><td>部署日志（增量追加）</td></tr>
+<tr><td><code>feature_flags</code></td><td>Feature Flag 键值对</td></tr>
+<tr><td><code>flag_audits</code></td><td>Flag 变更审计</td></tr>
+<tr><td><code>project_status</code></td><td>项目当前状态快照</td></tr>
+<tr><td><code>heartbeats</code></td><td>Agent 心跳历史</td></tr>
+<h3>4. Agent (`packages/agent`)</h3>
+<p>在目标服务器运行的轻量进程，职责详见 <a href="./agent.html">Agent 详解</a>。</p>
+<h3>5. SDK (`packages/sdk`)</h3>
+<p>Node.js Feature Flag SDK，职责详见 <a href="./feature-flags.html">Feature Flag</a>。</p>
+<h2>数据流</h2>
+<h3>部署流程</h3>
+<pre><code class="language-">
+1. 用户点击 Deploy (Web Panel)
+        │
+        ▼
+2. Core API 创建 Deployment + DeploymentTargets
+   - all-at-once: 所有目标 queued
+   - rolling: 第一个 queued，其余 blocked
+        │
+        ▼
+3. Agent 轮询 GET /agents/tasks → 领取自己的目标任务
+        │
+        ▼
+4. Agent POST /agents/tasks/:id/start → status=running
+        │
+        ▼
+5. Agent 执行: git fetch → checkout → docker compose → healthcheck
+        │
+        ▼
+6. Agent POST /agents/tasks/:id/logs (增量)
+        │
+        ▼
+7. Agent POST /agents/tasks/:id/finish → status=success/failed
+   - rolling 模式: 成功后推进下一个 blocked → queued
+   - 全部完成: deployment 汇总状态
+</code></pre>
+<h3>Feature Flag 同步流程</h3>
+<p>详见 <a href="./feature-flags.html">Feature Flag</a>。</p>
+<h2>安全设计</h2>
+<p>- <strong>JWT 鉴权</strong>：Web Panel 管理员使用 JWT</p>
+<p>- <strong>Agent Token</strong>：每个项目独立生成，SHA256 哈希存储，仅创建时明文显示</p>
+<p>- <strong>Agent 隔离</strong>：Agent 只能领取属于自己 <code>agent_id</code> 的任务</p>
+<p>- <strong>Flag 原子写入</strong>：<code>tmp</code> → <code>rename</code> 避免半写状态</p>
+<p>- <strong>SDK 安全兜底</strong>：文件不存在或损坏时返回 <code>false</code></p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

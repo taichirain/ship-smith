@@ -48,22 +48,19 @@ def md_to_html(md_content):
         elif line.startswith('---'):
             html_parts.append('<hr>')
         elif line.startswith('|') and '|' in line.strip()[1:]:
-            if not html_parts or html_parts[-1].startswith('<table'):
-                html_parts.append('<table>')
             parts = [p.strip() for p in line.strip().strip('|').split('|')]
             if all(set(p).issubset(set('-:| ')) for p in parts):
                 continue
-            if html_parts[-1] == '<table>' and all(set(p).issubset(set('-:| ')) for p in parts):
-                html_parts.append('<thead><tr>' + ''.join(f'<th>{p}</th>' for p in parts) + '</tr></thead><tbody>')
+            if not html_parts or html_parts[-1].startswith('<table'):
+                html_parts.append('<table>')
+                html_parts.append('<thead><tr>' + ''.join(f'<th>{inline_md(p)}</th>' for p in parts) + '</tr></thead><tbody>')
             else:
-                html_parts.append('<tr>' + ''.join(f'<td>{p}</td>' for p in parts) + '</tr>')
+                html_parts.append('<tr>' + ''.join(f'<td>{inline_md(p)}</td>' for p in parts) + '</tr>')
         else:
             html_parts.append(f'<p>{inline_md(line)}</p>')
 
     html = '\n'.join(html_parts)
-    html = re.sub(r'</table>\s*<tbody>', '</thead><tbody>', html)
-    html = re.sub(r'<table>\s*<tr>(.*?)</tr>\s*<tr>(.*?)</tr>',
-                  r'<table><thead><tr>\1</tr></thead><tbody><tr>\2</tr>', html)
+    html = re.sub(r'<table>.*?<tbody>', lambda m: m.group(0) + '<tr>', html)
     html = re.sub(r'(<table>.*?<tbody>.*?)(</table>)', r'\1</tbody>\2', html, flags=re.DOTALL)
 
     return html
@@ -93,6 +90,8 @@ def get_sidebar(current_page):
         ('index', '概述'),
         ('quickstart', '快速入门'),
         ('architecture', '架构说明'),
+        ('agent', 'Agent 详解'),
+        ('feature-flags', 'Feature Flag'),
         ('api-reference', 'API 参考'),
     ]
 
@@ -172,6 +171,18 @@ def main():
             'title': '架构说明',
             'subtitle': '了解 ShipSmith 的系统设计',
             'source': PROJECT_ROOT / 'docs' / 'user-guide' / 'architecture.md',
+        },
+        {
+            'id': 'agent',
+            'title': 'Agent 详解',
+            'subtitle': 'Agent 架构、安装与运行原理',
+            'source': PROJECT_ROOT / 'docs' / 'user-guide' / 'agent.md',
+        },
+        {
+            'id': 'feature-flags',
+            'title': 'Feature Flag',
+            'subtitle': 'Feature Flag 管理与 SDK 使用',
+            'source': PROJECT_ROOT / 'docs' / 'user-guide' / 'feature-flags.md',
         },
         {
             'id': 'api-reference',

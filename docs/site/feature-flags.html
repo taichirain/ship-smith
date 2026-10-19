@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feature Flag - ShipSmith 文档</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>ShipSmith</h1>
+        <p>部署自动化 + Feature Flag 控制平面</p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">文档</div>
+          <ul class="nav-links">
+<li><a href="index.html" class="">概述</a></li>
+<li><a href="quickstart.html" class="">快速入门</a></li>
+<li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="agent.html" class="">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="active">Feature Flag</a></li>
+<li><a href="api-reference.html" class="">API 参考</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="content">
+        <h1 class="page-title">Feature Flag</h1>
+        <p class="page-desc">Feature Flag 管理与 SDK 使用</p>
+        <article>
+<h1>Feature Flag</h1>
+<p>Feature Flag 是 ShipSmith 的核心功能之一，允许你在运行时动态开关功能，无需重新部署。</p>
+<h2>工作原理</h2>
+<pre><code class="language-">
+  Web Panel 用户切换 Flag
+        │
+        ▼
+  Core API → 更新 feature_flags 表
+           → flag.version += 1
+           → 记录 flag_audits
+        │
+        ▼
+  Agent 轮询 GET /flags/sync?current_version=N
+        │
+        ▼
+  版本变化 → 原子写入 flags.json
+        │
+        ▼
+  应用 SDK 读取 flags.json（mtime 缓存）
+</code></pre>
+<h2>创建和管理 Flag</h2>
+<p>在项目详情页的 <strong>Feature Flags</strong> 区块中：</p>
+<p>1. <strong>创建 Flag</strong>：点击 <strong>New Flag</strong>，输入 key（如 <code>new-checkout-flow</code>）</p>
+<p>2. <strong>启用/禁用</strong>：点击开关即时切换，所有 Agent 在下一个 Poll 周期（30 秒内）同步</p>
+<p>3. <strong>归档 Flag</strong>：不再使用的 Flag 可以归档，不会影响生产，但不再出现在列表中</p>
+<p>4. <strong>审计日志</strong>：每次开关变更记录操作人和时间</p>
+<h2>Flag 文件格式</h2>
+<p>Agent 在目标服务器上维护一个 JSON 文件（路径在项目创建时指定）：</p>
+<pre><code class="language-json">
+{
+  "version": 3,
+  "updated_at": "2026-05-09T12:00:00Z",
+  "flags": {
+    "new-checkout-flow": true,
+    "dark-mode": false,
+    "payment-v2": true
+  }
+}
+</code></pre>
+<p>写入策略：先写入 <code>.tmp</code> 文件，再 <code>rename</code> 到目标路径，确保读取时不会遇到半写状态。</p>
+<h2>SDK 集成</h2>
+<p>ShipSmith 提供 Node.js SDK，用于在应用中读取 Flag：</p>
+<h3>安装</h3>
+<pre><code class="language-bash">
+npm install @shipsmith/sdk
+</code></pre>
+<h3>初始化</h3>
+<pre><code class="language-typescript">
+import { createFlagClient } from '@shipsmith/sdk';
+
+const client = createFlagClient({
+  flagsFilePath: '/var/lib/shipsmith/myapp/flags.json',
+  ttlMs: 5000,  // 缓存有效期 5 秒
+});
+</code></pre>
+<h3>使用</h3>
+<pre><code class="language-typescript">
+// 检查某个 Flag 是否启用
+if (client.isEnabled('new-checkout-flow')) {
+  // 展示新版结账页面
+} else {
+  // 展示旧版结账页面
+}
+
+// 获取所有 Flag
+const allFlags = client.getAllFlags();
+// { "new-checkout-flow": true, "dark-mode": false, ... }
+
+// 手动刷新
+await client.refresh();
+</code></pre>
+<h3>缓存策略</h3>
+<p>- <strong>基于 mtime</strong>：首次读取后缓存文件 mtime，后续检查 mtime 是否变化</p>
+<p>- <strong>TTL 控制</strong>：通过 <code>ttlMs</code> 参数控制最大缓存时间（默认 5000ms）</p>
+<p>- <strong>安全兜底</strong>：文件不存在或解析失败时所有 Flag 返回 <code>false</code></p>
+<h3>完整示例</h3>
+<pre><code class="language-typescript">
+import { createFlagClient } from '@shipsmith/sdk';
+import express from 'express';
+
+const app = express();
+const flags = createFlagClient({
+  flagsFilePath: '/var/lib/shipsmith/myapp/flags.json',
+});
+
+// 中间件：每次请求刷新 Flag
+app.use(async (req, res, next) =&gt; {
+  await flags.refresh();
+  // 将 Flag 客户端注入请求对象
+  req.flags = flags;
+  next();
+});
+
+// 路由中使用 Flag
+app.get('/api/checkout', (req, res) =&gt; {
+  if (req.flags.isEnabled('new-checkout-flow')) {
+    res.json({ version: 'v2', features: ['express-checkout'] });
+  } else {
+    res.json({ version: 'v1' });
+  }
+});
+
+app.listen(3000);
+</code></pre>
+<h2>最佳实践</h2>
+<h3>1. 渐进式发布</h3>
+<p>先在小范围启用新功能，确认稳定后再全量开放：</p>
+<pre><code class="language-">
+阶段 1: Flag 关闭 → 旧代码运行
+阶段 2: Flag 开启 10% → 观察日志和错误
+阶段 3: Flag 开启 50% → 继续观察
+阶段 4: Flag 全量开启 → 稳定后移除旧代码
+</code></pre>
+<h3>2. 命名规范</h3>
+<p>- 使用 <code>kebab-case</code>：<code>new-checkout-flow</code></p>
+<p>- 命名体现功能，而非版本：<code>use-new-api</code> 优于 <code>api-v2</code></p>
+<p>- 考虑删除时机：可以备注 <code>remove-after: 2026-06</code> 在项目 runbook 中</p>
+<h3>3. 安全策略</h3>
+<p>- Flag 默认关闭（<code>false</code>），新功能需要显式开启</p>
+<p>- 生产环境 Flag 变更后，Agent 最多 30 秒同步到目标服务器</p>
+<p>- 过期的 Flag 及时归档，避免代码中遗留无用判断</p>
+<h3>4. 应用层建议</h3>
+<p>- <strong>不要</strong>将 Flag 用于安全鉴权（用户权限应走独立系统）</p>
+<p>- <strong>不要</strong>在 Flag 中存储敏感信息</p>
+<p>- <strong>适合</strong>的功能：UI 改版、支付流程切换、新算法上线</p>
+<p>- <strong>不适合</strong>的功能：数据库迁移、基础设施变更</p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

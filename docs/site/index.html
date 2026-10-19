@@ -20,6 +20,8 @@
 <li><a href="index.html" class="active">概述</a></li>
 <li><a href="quickstart.html" class="">快速入门</a></li>
 <li><a href="architecture.html" class="">架构说明</a></li>
+<li><a href="agent.html" class="">Agent 详解</a></li>
+<li><a href="feature-flags.html" class="">Feature Flag</a></li>
 <li><a href="api-reference.html" class="">API 参考</a></li>
           </ul>
         </div>
@@ -106,10 +108,10 @@ shipsmith/
 <p>- [x] Phase 6: Agent 打包分发</p>
 <h2>环境变量</h2>
 <tr><td>变量</td><td>说明</td><td>默认值</td></tr>
-<tr><td>`DATABASE_URL`</td><td>数据库连接字符串</td><td>`postgresql://postgres:postgres@localhost:5432/shipsmith`</td></tr>
-<tr><td>`JWT_SECRET_KEY`</td><td>JWT 签名密钥</td><td>`change-me-in-production-please`</td></tr>
-<tr><td>`ADMIN_USERNAME`</td><td>管理员用户名</td><td>`admin`</td></tr>
-<tr><td>`ADMIN_PASSWORD`</td><td>管理员密码</td><td>`admin123`</td></tr>
+<tr><td><code>DATABASE_URL</code></td><td>数据库连接字符串</td><td><code>postgresql://postgres:postgres@localhost:5432/shipsmith</code></td></tr>
+<tr><td><code>JWT_SECRET_KEY</code></td><td>JWT 签名密钥</td><td><code>change-me-in-production-please</code></td></tr>
+<tr><td><code>ADMIN_USERNAME</code></td><td>管理员用户名</td><td><code>admin</code></td></tr>
+<tr><td><code>ADMIN_PASSWORD</code></td><td>管理员密码</td><td><code>admin123</code></td></tr>
 <h2>开发</h2>
 <pre><code class="language-bash">
 # 同时启动 API 和 Web
