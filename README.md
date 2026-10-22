@@ -134,6 +134,18 @@ Agent 会从 Core 拉取项目的健康检查配置，并在每次心跳时检�
 
 当前后台扫描按单个 API 进程设计；如果以后跑多个 API worker，需要给扫描器加数据库 advisory lock，避免重复扫描。
 
+## 生产部署与恢复
+
+- 生产 Compose：[`docker-compose.prod.yml`](docker-compose.prod.yml)
+- 生产环境变量模板：[`.env.production.example`](.env.production.example)
+- 操作手册：[`docs/production.md`](docs/production.md)
+- 备份：`scripts/backup_shipsmith.sh`
+- 备份恢复校验：`scripts/verify_shipsmith_backup.sh <backup-dir>`
+
+生产模式会拒绝默认口令、短密钥、`CORS_ORIGINS=*` 和非 HTTPS 的 `PUBLIC_CORE_URL`。API/web 只绑定 `127.0.0.1`，TLS 由前置反向代理终止。
+
+Agent 在 Core 不可达时会把部署结果和日志写入 `~/.local/state/shipsmith/outbox/<workdir-hash>/`，每 10 秒重试；Core 恢复后自动补发，不会把已完成的部署丢成失败。
+
 ## 目录结构
 
 ```

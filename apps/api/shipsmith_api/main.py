@@ -6,13 +6,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import get_settings
+from .config import get_settings, validate_runtime_settings
 from .monitor import monitor_loop
 from .routers import auth_router, projects_router, deployments_router, flags_router, agents_router, webhooks_router, dashboard_router, notifications_router, alerts_router
 
 
 def create_app(start_monitor: bool = True) -> FastAPI:
     settings = get_settings()
+    validate_runtime_settings(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -38,7 +39,7 @@ def create_app(start_monitor: bool = True) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_origins_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

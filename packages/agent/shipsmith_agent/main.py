@@ -11,6 +11,7 @@ from .config import get_settings
 from .client import CoreClient
 from .log_collector import LogCollector
 from .deployer import Deployer, DeployError
+from .outbox import Outbox
 from .health_check import HealthChecker
 from .self_check import run_precheck
 from . import __version__ as AGENT_VERSION
@@ -73,6 +74,11 @@ class Agent:
         self._project_config: Optional[Dict[str, Any]] = None
         self._project_config_updated_at = 0.0
         self._health_lock = threading.Lock()
+        try:
+            self.outbox = Outbox(self.settings.workdir) if self.settings.workdir else None
+        except Exception:
+            logger.exception("failed to initialize the outbox; results/logs will not be buffered")
+            self.outbox = None
 
         if not self.settings.agent_token:
             raise ValueError("SHIPSMITH_AGENT_TOKEN environment variable is required")
@@ -90,6 +96,44 @@ class Agent:
                 logger.debug(f"Sending task heartbeat for task {task_id}")
                 self.client.send_task_heartbeat(task_id)
         logger.debug(f"Task heartbeat loop stopped for task {task_id}")
+
+    def _send_logs(self, task_id: int, seq: int, phase: str, content: str) -> bool:
+        if self.client.send_logs(task_id, seq, phase, content):
+            return True
+        if self.outbox is not None:
+            self.outbox.enqueue_log(task_id, seq, phase, content)
+        return False
+
+    def _finish_task(self, task_id: int, **payload) -> bool:
+        if self.outbox is not None:
+            self.outbox.enqueue_result(task_id, payload)
+        if self.client.finish_task(task_id, **payload):
+            if self.outbox is not None:
+                self.outbox.remove_result(task_id)
+            return True
+        return False
+
+    def _flush_outbox(self) -> None:
+        if self.outbox is None:
+            return
+
+        for path, item in self.outbox.pending_results():
+            task_id = item.get("task_id")
+            payload = item.get("payload") or {}
+            if task_id is not None and self.client.finish_task(task_id, **payload):
+                self.outbox.remove(path)
+
+        for path, item in self.outbox.pending_logs():
+            task_id = item.get("task_id")
+            if task_id is None:
+                continue
+            if self.client.send_logs(
+                task_id,
+                item.get("seq", 0),
+                item.get("phase"),
+                item.get("content", ""),
+            ):
+                self.outbox.remove(path)
 
     def _refresh_project_config(self) -> None:
         result = self.client.get_agent_config()
@@ -161,7 +205,7 @@ class Agent:
 
             logger.info(f"Precheck completed with status: {precheck_result['overall_status']}")
 
-            self.client.finish_task(
+            self._finish_task(
                 task_id=task_id,
                 status="success",
                 error_code=None,
@@ -194,7 +238,7 @@ class Agent:
 
         except Exception as e:
             logger.error(f"Precheck task {task_id} failed: {e}")
-            self.client.finish_task(
+            self._finish_task(
                 task_id=task_id,
                 status="failed",
                 error_code="precheck_failed",
@@ -246,7 +290,7 @@ class Agent:
             self._task_heartbeat_thread.start()
 
             def send_logs(seq: int, phase: str, content: str) -> bool:
-                return self.client.send_logs(task_id, seq, phase, content)
+                return self._send_logs(task_id, seq, phase, content)
 
             log_collector = LogCollector(send_logs)
             deployer = Deployer(
@@ -315,7 +359,7 @@ class Agent:
                         final_status = "failed" if kind == "deploy" else "rollback_failed"
                         error_msg = f"Health check failed: {health_result}"
                         log_collector.error("health_check", error_msg)
-                        self.client.finish_task(
+                        self._finish_task(
                             task_id=task_id,
                             status=final_status,
                             commit_hash=actual_commit,
@@ -332,7 +376,7 @@ class Agent:
 
                 self._collect_and_send_heartbeat()
 
-                self.client.finish_task(
+                self._finish_task(
                     task_id=task_id,
                     status=final_status,
                     commit_hash=actual_commit,
@@ -346,7 +390,7 @@ class Agent:
             except DeployError as e:
                 logger.error(f"Task {task_id} failed: {e.message}")
                 final_status = "failed" if kind == "deploy" else "rollback_failed"
-                self.client.finish_task(
+                self._finish_task(
                     task_id=task_id,
                     status=final_status,
                     commit_hash=actual_commit,
@@ -360,7 +404,7 @@ class Agent:
             except Exception as e:
                 logger.error(f"Task {task_id} failed with unexpected error: {e}")
                 final_status = "failed" if kind == "deploy" else "rollback_failed"
-                self.client.finish_task(
+                self._finish_task(
                     task_id=task_id,
                     status=final_status,
                     commit_hash=actual_commit,
@@ -389,10 +433,12 @@ class Agent:
         last_heartbeat = 0
         last_flags_sync = 0
         last_project_config_refresh = 0
+        last_outbox_flush = 0
         flags_version = 0
 
         self._refresh_project_config()
         last_project_config_refresh = time.time()
+        self._flush_outbox()
         self._collect_and_send_heartbeat()
 
         while self._running:
@@ -419,6 +465,10 @@ class Agent:
                 if now - last_project_config_refresh >= self.settings.project_config_refresh_interval_seconds:
                     self._refresh_project_config()
                     last_project_config_refresh = now
+
+                if now - last_outbox_flush >= 10:
+                    self._flush_outbox()
+                    last_outbox_flush = now
 
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")

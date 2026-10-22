@@ -45,7 +45,11 @@ packages/agent/.venv/
 # Environment
 .env
 .env.local
+.env.production
 .venv
+
+# Backups
+backups/
 
 # OS
 .DS_Store

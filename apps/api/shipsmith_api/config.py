@@ -4,12 +4,18 @@ from functools import lru_cache
 from pydantic import BaseModel
 
 
+DEFAULT_JWT_SECRET = "change-me-in-production-please"
+DEFAULT_ADMIN_PASSWORD = "admin123"
+
+
 class Settings(BaseModel):
     app_name: str = "ShipSmith API"
     app_version: str = "0.1.0"
     api_prefix: str = "/api/v1"
+    environment: str = "development"
     public_core_url: str = ""
     install_script_url: str = "https://shipsmith.example.com/install.sh"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/shipsmith"
 
@@ -40,6 +46,60 @@ class Settings(BaseModel):
     llm_temperature: float = 0.3
     llm_timeout: int = 30
 
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() in {"production", "prod"}
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+
+PLACEHOLDER_MARKERS = ("change-me", "replace-with", "changeme", "your-", "example.com")
+
+
+def _has_placeholder(value: str) -> bool:
+    lowered = (value or "").lower()
+    return any(marker in lowered for marker in PLACEHOLDER_MARKERS)
+
+
+def validate_runtime_settings(settings: Settings | None = None) -> None:
+    current = settings or get_settings()
+    if not current.is_production:
+        return
+
+    problems = []
+    if (
+        current.jwt_secret_key == DEFAULT_JWT_SECRET
+        or len(current.jwt_secret_key) < 32
+        or _has_placeholder(current.jwt_secret_key)
+    ):
+        problems.append("JWT_SECRET_KEY must be a unique random value of at least 32 characters")
+    if (
+        not current.git_credentials_secret_key
+        or len(current.git_credentials_secret_key) < 32
+        or _has_placeholder(current.git_credentials_secret_key)
+    ):
+        problems.append("GIT_CREDENTIALS_SECRET_KEY must be a unique random value of at least 32 characters")
+    if (
+        current.admin_password == DEFAULT_ADMIN_PASSWORD
+        or len(current.admin_password) < 12
+        or _has_placeholder(current.admin_password)
+    ):
+        problems.append("ADMIN_PASSWORD must be changed and at least 12 characters")
+    if (
+        not current.cors_origins_list
+        or any("*" in origin or _has_placeholder(origin) for origin in current.cors_origins_list)
+    ):
+        problems.append("CORS_ORIGINS must list explicit origins, not '*' or placeholders")
+    if not current.public_core_url.startswith("https://") or _has_placeholder(current.public_core_url):
+        problems.append("PUBLIC_CORE_URL must be a real https:// URL in production")
+    if _has_placeholder(current.database_url):
+        problems.append("DATABASE_URL still contains a placeholder password")
+
+    if problems:
+        raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
+
 
 def _load_env_from_file() -> None:
     env_path = os.path.join(os.getcwd(), ".env")
@@ -66,7 +126,9 @@ def get_settings() -> Settings:
         app_name=os.environ.get("APP_NAME", "ShipSmith API"),
         app_version=os.environ.get("APP_VERSION", "0.1.0"),
         api_prefix=os.environ.get("API_PREFIX", "/api/v1"),
+        environment=os.environ.get("SHIPSMITH_ENV", os.environ.get("ENV", "development")),
         public_core_url=os.environ.get("PUBLIC_CORE_URL", ""),
+        cors_origins=os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"),
         install_script_url=os.environ.get("INSTALL_SCRIPT_URL", "https://shipsmith.example.com/install.sh"),
         database_url=os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/shipsmith"),
         jwt_secret_key=os.environ.get("JWT_SECRET_KEY", "change-me-in-production-please"),
