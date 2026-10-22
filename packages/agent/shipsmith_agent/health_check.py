@@ -85,19 +85,25 @@ class HealthChecker:
 
         return containers
 
-    def check_http_health(self, url: str, timeout: int = 10) -> Dict[str, Any]:
+    def check_http_health(
+        self,
+        url: str,
+        timeout: int = 10,
+        expected_status: int = 200,
+    ) -> Dict[str, Any]:
         try:
             with httpx.Client(timeout=timeout) as client:
                 start = time.time()
                 response = client.get(url)
                 elapsed_ms = int((time.time() - start) * 1000)
 
-                status = "healthy" if response.status_code == 200 else "unhealthy"
+                status = "healthy" if response.status_code == expected_status else "unhealthy"
 
                 return {
                     "status": status,
                     "response_ms": elapsed_ms,
                     "http_status": response.status_code,
+                    "expected_status": expected_status,
                 }
         except Exception as e:
             logger.warning(f"Health check failed for {url}: {e}")

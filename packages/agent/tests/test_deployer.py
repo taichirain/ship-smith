@@ -185,3 +185,130 @@ def test_command_output_is_redacted(tmp_path):
     assert code == 0
     assert "secret-token" not in output
     assert "***" in output
+
+
+def test_run_migration_uses_profiles_and_no_deps(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    deployer.compose_profiles = ["data-sync", "sync"]
+    captured = {}
+
+    def fake_run_command(cmd, phase, **kwargs):
+        captured["cmd"] = cmd
+        captured["phase"] = phase
+        return 0, ""
+
+    deployer._run_command = fake_run_command
+    deployer.run_migration(
+        compose_file="docker-compose.yml",
+        service="api",
+        command="alembic upgrade head",
+        timeout=120,
+        no_deps=True,
+    )
+
+    assert captured["phase"] == "migration"
+    assert captured["cmd"] == [
+        "docker", "compose",
+        "--profile", "data-sync",
+        "--profile", "sync",
+        "-f", "docker-compose.yml",
+        "run", "--rm", "--no-deps",
+        "api", "alembic", "upgrade", "head",
+    ]
+
+
+def test_migration_failure_stops_up(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    calls = []
+
+    deployer.git_fetch = lambda **kwargs: None
+    deployer.snapshot_runtime = lambda *args, **kwargs: {}
+    deployer.docker_compose_config = lambda *args, **kwargs: calls.append("config")
+    deployer.docker_compose_build = lambda *args, **kwargs: calls.append("build")
+    deployer.docker_compose_up = lambda *args, **kwargs: calls.append("up")
+
+    def fail_migration(**kwargs):
+        calls.append("migration")
+        raise DeployError("migration_failed", "migration failed")
+
+    deployer.run_migration = fail_migration
+
+    with pytest.raises(DeployError) as exc:
+        deployer.deploy(
+            git_repo="https://github.com/test/repo.git",
+            target_commit=None,
+            branch="main",
+            strategy="compose-build",
+            migration_service="api",
+            migration_command="alembic upgrade head",
+        )
+
+    assert exc.value.error_code == "migration_failed"
+    assert calls == ["config", "build", "migration"]
+
+
+def test_deploy_lock_is_exclusive(tmp_path):
+    repo = make_repo(tmp_path)
+    first = make_deployer(repo)
+    second = make_deployer(repo)
+
+    with first._deploy_lock():
+        with pytest.raises(DeployError) as exc:
+            with second._deploy_lock():
+                pass
+
+    assert exc.value.error_code == "deploy_locked"
+
+
+def test_docker_compose_up_includes_profiles(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    deployer.compose_profiles = ["data-sync"]
+    captured = []
+
+    def fake_run_command(cmd, phase, **kwargs):
+        captured.append(cmd)
+        return 0, ""
+
+    deployer._run_command = fake_run_command
+    deployer.docker_compose_up("docker-compose.yml")
+
+    assert captured[0] == [
+        "docker", "compose",
+        "--profile", "data-sync",
+        "-f", "docker-compose.yml",
+        "up", "-d",
+    ]
+
+
+def test_health_check_expected_status(monkeypatch):
+    from shipsmith_agent.health_check import HealthChecker
+
+    class FakeResponse:
+        status_code = 204
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url):
+            return FakeResponse()
+
+    monkeypatch.setattr("shipsmith_agent.health_check.httpx.Client", FakeClient)
+
+    result = HealthChecker().check_http_health(
+        "http://example.test/ready",
+        timeout=2,
+        expected_status=204,
+    )
+
+    assert result["status"] == "healthy"
+    assert result["expected_status"] == 204

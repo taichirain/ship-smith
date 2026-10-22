@@ -35,9 +35,15 @@ class ProjectBase(BaseModel):
     deploy_strategy: str = Field(default="compose-build", max_length=32)
     healthcheck_url: Optional[str] = None
     healthcheck_timeout_seconds: int = Field(default=10, ge=1, le=300)
+    healthcheck_expected_status: int = Field(default=200, ge=100, le=599)
     flags_file_path: str
     pre_deploy_command: Optional[str] = None
     post_deploy_command: Optional[str] = None
+    migration_service: str = Field(default="", max_length=128)
+    migration_command: Optional[str] = None
+    migration_timeout_seconds: int = Field(default=600, ge=1, le=7200)
+    migration_no_deps: bool = True
+    compose_profiles: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
     troubleshooting_hint: Optional[str] = None
@@ -71,6 +77,23 @@ class ProjectCreate(ProjectBase):
             raise ValueError("must be compose-build or compose-pull")
         return value
 
+    @field_validator("migration_command")
+    @classmethod
+    def migration_command_must_not_be_blank(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            return None
+        return value
+
+    @field_validator("compose_profiles")
+    @classmethod
+    def compose_profiles_must_be_valid(cls, value: List[str]) -> List[str]:
+        import re
+
+        for profile in value:
+            if not re.match(r"^[A-Za-z0-9._-]+$", profile):
+                raise ValueError(f"invalid compose profile: {profile}")
+        return value
+
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=128)
@@ -88,9 +111,15 @@ class ProjectUpdate(BaseModel):
     deploy_strategy: Optional[str] = Field(default=None, max_length=32)
     healthcheck_url: Optional[str] = None
     healthcheck_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=300)
+    healthcheck_expected_status: Optional[int] = Field(default=None, ge=100, le=599)
     flags_file_path: Optional[str] = None
     pre_deploy_command: Optional[str] = None
     post_deploy_command: Optional[str] = None
+    migration_service: Optional[str] = Field(default=None, max_length=128)
+    migration_command: Optional[str] = None
+    migration_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=7200)
+    migration_no_deps: Optional[bool] = None
+    compose_profiles: Optional[List[str]] = None
     webhook_secret: Optional[str] = Field(default=None, max_length=256)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
@@ -123,6 +152,25 @@ class ProjectUpdate(BaseModel):
     def optional_strategy_must_be_supported(cls, value: Optional[str]) -> Optional[str]:
         if value is not None and value not in {"compose-build", "compose-pull"}:
             raise ValueError("must be compose-build or compose-pull")
+        return value
+
+    @field_validator("migration_command")
+    @classmethod
+    def optional_migration_command_must_not_be_blank(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            return None
+        return value
+
+    @field_validator("compose_profiles")
+    @classmethod
+    def optional_compose_profiles_must_be_valid(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        import re
+
+        if value is None:
+            return value
+        for profile in value:
+            if not re.match(r"^[A-Za-z0-9._-]+$", profile):
+                raise ValueError(f"invalid compose profile: {profile}")
         return value
 
 

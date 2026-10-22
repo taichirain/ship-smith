@@ -288,7 +288,13 @@ def _build_project_summary(project, project_status) -> dict:
         "deploy_strategy": project.deploy_strategy,
         "healthcheck_url": project.healthcheck_url,
         "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds,
+        "healthcheck_expected_status": project.healthcheck_expected_status,
         "flags_file_path": project.flags_file_path,
+        "migration_service": project.migration_service,
+        "migration_command": project.migration_command,
+        "migration_timeout_seconds": project.migration_timeout_seconds,
+        "migration_no_deps": project.migration_no_deps,
+        "compose_profiles": project.compose_profiles or [],
         "runbook": {
             "notes": project.notes,
             "release_notes_hint": project.release_notes_hint,
@@ -314,6 +320,11 @@ async def create_project(
     current_user: dict = Depends(get_current_user),
 ):
     Project, ProjectStatus, _, _, ProjectTarget, _, _ = _import_db_models()
+    if data.migration_command and not data.migration_service.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="migration_service is required when migration_command is set",
+        )
     credential_update = _build_git_credential_update(
         project=None,
         credential_type=data.git_credential_type,
@@ -346,7 +357,13 @@ async def create_project(
         post_deploy_command=data.post_deploy_command,
         healthcheck_url=data.healthcheck_url,
         healthcheck_timeout_seconds=data.healthcheck_timeout_seconds,
+        healthcheck_expected_status=data.healthcheck_expected_status,
         flags_file_path=data.flags_file_path,
+        migration_service=data.migration_service,
+        migration_command=data.migration_command,
+        migration_timeout_seconds=data.migration_timeout_seconds,
+        migration_no_deps=data.migration_no_deps,
+        compose_profiles=data.compose_profiles,
         agent_id=agent_id,
         agent_token_hash=agent_token_hash,
         webhook_endpoint_id=_generate_webhook_endpoint_id(),
@@ -518,7 +535,13 @@ async def get_project(
         "deploy_strategy": project.deploy_strategy,
         "healthcheck_url": project.healthcheck_url,
         "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds,
+        "healthcheck_expected_status": project.healthcheck_expected_status,
         "flags_file_path": project.flags_file_path,
+        "migration_service": project.migration_service,
+        "migration_command": project.migration_command,
+        "migration_timeout_seconds": project.migration_timeout_seconds,
+        "migration_no_deps": project.migration_no_deps,
+        "compose_profiles": project.compose_profiles or [],
         "agent_id": project.agent_id,
         "webhook_endpoint_id": project.webhook_endpoint_id,
         "created_at": project.created_at,
@@ -559,8 +582,17 @@ async def update_project(
 
     old_values = {}
     new_values = {}
-    
+    non_nullable_defaults = {
+        "migration_service": "",
+        "migration_timeout_seconds": 600,
+        "migration_no_deps": True,
+        "compose_profiles": [],
+        "healthcheck_expected_status": 200,
+    }
+
     for field, value in update_data.items():
+        if value is None and field in non_nullable_defaults:
+            value = non_nullable_defaults[field]
         old_val = getattr(project, field)
         old_values[field] = old_val
         new_values[field] = value
@@ -580,6 +612,12 @@ async def update_project(
             new_values[field] = "[updated]" if "encrypted" in field else value
             setattr(project, field, value)
     
+    if project.migration_command and not (project.migration_service or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="migration_service is required when migration_command is set",
+        )
+
     project.updated_at = datetime.utcnow()
     
     audit = ProjectAudit(

@@ -11,6 +11,7 @@ FAILURE_PHASES = {
     "docker_build": "构建镜像",
     "docker_pull": "拉取镜像",
     "docker_up": "启动容器",
+    "migration": "执行数据库迁移",
     "pre_deploy": "部署前钩子",
     "post_deploy": "部署后钩子",
     "health_check": "健康检查",
@@ -203,6 +204,32 @@ ERROR_CODE_RULES: Dict[str, Dict[str, Any]] = {
             "3. 检查端口是否被其他进程占用",
             "4. 查看容器日志定位具体错误",
             "5. 手动执行 `docker compose up` 查看完整输出",
+        ],
+    },
+    "migration_failed": {
+        "title": "数据库迁移失败",
+        "category": "migration",
+        "human_explanation": (
+            "新镜像已构建，但迁移容器执行失败。ShipSmith 没有启动新容器，旧容器保持不变。"
+        ),
+        "checklist": [
+            {
+                "action": "查看迁移日志",
+                "description": "在部署日志的 migration 阶段查看具体 SQL 或迁移错误",
+            },
+            {
+                "action": "确认数据库连接",
+                "description": "确认 migration_service 使用的 DATABASE_URL 和网络可达",
+            },
+            {
+                "action": "确认迁移版本",
+                "description": "确认目标版本与数据库当前版本之间的迁移链完整",
+            },
+        ],
+        "resolution_steps": [
+            "1. 修复迁移错误或补齐缺失的迁移版本",
+            "2. 确认数据库备份和回滚方案",
+            "3. 重新触发部署；ShipSmith 会再次执行 migration 后才启动新容器",
         ],
     },
     "pre_deploy_failed": {

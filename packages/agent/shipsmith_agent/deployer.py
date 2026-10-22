@@ -1,14 +1,22 @@
+import hashlib
 import json
 import logging
 import os
 import re
+import shlex
 import signal
 import subprocess
 import threading
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - the Agent targets Linux
+    fcntl = None
 
 from .log_collector import LogCollector
 
@@ -29,6 +37,7 @@ DEFAULT_TIMEOUTS = {
     "docker_build": 1800,
     "docker_pull": 900,
     "docker_up": 300,
+    "migration": 600,
     "pre_deploy": 600,
     "post_deploy": 600,
     "snapshot": 60,
@@ -75,10 +84,51 @@ def _normalize_repo_url(repo_url: str) -> str:
 
 
 class Deployer:
-    def __init__(self, workdir: str, log_collector: LogCollector, project_id: Optional[int] = None):
+    def __init__(
+        self,
+        workdir: str,
+        log_collector: LogCollector,
+        project_id: Optional[int] = None,
+        compose_profiles: Optional[List[str]] = None,
+    ):
         self.workdir = os.path.abspath(workdir) if workdir else ""
         self.log_collector = log_collector
         self.project_id = project_id
+        self.compose_profiles = [str(p) for p in (compose_profiles or []) if str(p).strip()]
+
+    @contextmanager
+    def _deploy_lock(self):
+        if fcntl is None:
+            yield
+            return
+
+        lock_dir = Path(tempfile.gettempdir()) / "shipsmith-locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        key = hashlib.sha256(self.workdir.encode("utf-8")).hexdigest()[:16]
+        lock_path = lock_dir / f"{key}.lock"
+        handle = lock_path.open("w", encoding="utf-8")
+        try:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise DeployError(
+                    "deploy_locked",
+                    "Another deployment is already running for this workdir",
+                )
+            yield
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            handle.close()
+
+    def _compose_args(self, compose_file: str) -> List[str]:
+        args = ["docker", "compose"]
+        for profile in self.compose_profiles:
+            args.extend(["--profile", profile])
+        args.extend(["-f", compose_file])
+        return args
 
     # ------------------------------------------------------------------
     # command execution
@@ -493,7 +543,7 @@ class Deployer:
     # ------------------------------------------------------------------
     def docker_compose_config(self, compose_file: str = "docker-compose.yml") -> None:
         code, _ = self._run_command(
-            ["docker", "compose", "-f", compose_file, "config", "--quiet"],
+            [*self._compose_args(compose_file), "config", "--quiet"],
             phase="docker_config",
         )
         if code != 0:
@@ -501,7 +551,7 @@ class Deployer:
 
     def docker_compose_build(self, compose_file: str = "docker-compose.yml") -> None:
         code, _ = self._run_command(
-            ["docker", "compose", "-f", compose_file, "build", "--progress", "plain"],
+            [*self._compose_args(compose_file), "build", "--progress", "plain"],
             phase="docker_build",
         )
         if code != 0:
@@ -509,7 +559,7 @@ class Deployer:
 
     def docker_compose_pull(self, compose_file: str = "docker-compose.yml") -> None:
         code, _ = self._run_command(
-            ["docker", "compose", "-f", compose_file, "pull"],
+            [*self._compose_args(compose_file), "pull"],
             phase="docker_pull",
         )
         if code != 0:
@@ -517,7 +567,7 @@ class Deployer:
 
     def docker_compose_up(self, compose_file: str = "docker-compose.yml") -> None:
         code, _ = self._run_command(
-            ["docker", "compose", "-f", compose_file, "up", "-d"],
+            [*self._compose_args(compose_file), "up", "-d"],
             phase="docker_up",
         )
         if code != 0:
@@ -525,7 +575,7 @@ class Deployer:
 
     def snapshot_runtime(self, compose_file: str = "docker-compose.yml") -> Dict[str, Any]:
         code, output = self._run_command(
-            ["docker", "compose", "-f", compose_file, "ps", "-q"],
+            [*self._compose_args(compose_file), "ps", "-q"],
             phase="snapshot",
             timeout=60,
         )
@@ -565,6 +615,41 @@ class Deployer:
             }
         return snapshot
 
+    def run_migration(
+        self,
+        compose_file: str,
+        service: Optional[str],
+        command: Optional[str],
+        timeout: int = 600,
+        no_deps: bool = True,
+    ) -> None:
+        if not command or not command.strip():
+            return
+        if not service or not service.strip():
+            raise DeployError(
+                "migration_service_missing",
+                "migration_service is required when migration_command is set",
+            )
+
+        try:
+            extra_args = shlex.split(command)
+        except ValueError as exc:
+            raise DeployError(
+                "migration_command_invalid",
+                f"Invalid migration command: {exc}",
+            )
+        if not extra_args:
+            return
+
+        cmd = self._compose_args(compose_file) + ["run", "--rm"]
+        if no_deps:
+            cmd.append("--no-deps")
+        cmd.extend([service.strip(), *extra_args])
+
+        code, _ = self._run_command(cmd, phase="migration", timeout=timeout)
+        if code != 0:
+            raise DeployError("migration_failed", "database migration failed")
+
     def run_pre_deploy(self, cmd: Optional[str]) -> None:
         if not cmd or not cmd.strip():
             return
@@ -590,7 +675,11 @@ class Deployer:
     # ------------------------------------------------------------------
     # deployment
     # ------------------------------------------------------------------
-    def deploy(
+    def deploy(self, *args, **kwargs):
+        with self._deploy_lock():
+            return self._deploy(*args, **kwargs)
+
+    def _deploy(
         self,
         git_repo: str,
         target_commit: Optional[str],
@@ -605,9 +694,16 @@ class Deployer:
         pre_deploy: Optional[str] = None,
         post_deploy: Optional[str] = None,
         project_id: Optional[int] = None,
+        compose_profiles: Optional[List[str]] = None,
+        migration_service: Optional[str] = None,
+        migration_command: Optional[str] = None,
+        migration_timeout_seconds: int = 600,
+        migration_no_deps: bool = True,
     ) -> Dict[str, Any]:
         if project_id is not None:
             self.project_id = project_id
+        if compose_profiles is not None:
+            self.compose_profiles = [str(p) for p in compose_profiles if str(p).strip()]
 
         self.log_collector.info("git_fetch", "Starting deployment...")
         auth = self.ensure_repo(
@@ -652,6 +748,14 @@ class Deployer:
                     "invalid_deploy_strategy",
                     f"Unsupported deploy strategy: {strategy}",
                 )
+
+            self.run_migration(
+                compose_file=compose_file,
+                service=migration_service,
+                command=migration_command,
+                timeout=migration_timeout_seconds,
+                no_deps=migration_no_deps,
+            )
 
             self.docker_compose_up(compose_file)
             self.run_post_deploy(post_deploy)

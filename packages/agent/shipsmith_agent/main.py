@@ -48,6 +48,10 @@ _ERROR_PHASE_MAP = {
     "docker_up_failed": "docker_up",
     "pre_deploy_failed": "pre_deploy",
     "post_deploy_failed": "post_deploy",
+    "migration_failed": "migration",
+    "migration_service_missing": "preflight",
+    "migration_command_invalid": "migration",
+    "deploy_locked": "preflight",
     "invalid_deploy_strategy": "preflight",
 }
 
@@ -200,6 +204,12 @@ class Agent:
             deploy_strategy = task.get("deploy_strategy", "compose-build")
             healthcheck_url = task.get("healthcheck_url")
             healthcheck_timeout = task.get("healthcheck_timeout_seconds", 10)
+            healthcheck_expected_status = task.get("healthcheck_expected_status", 200)
+            migration_service = task.get("migration_service")
+            migration_command = task.get("migration_command")
+            migration_timeout = task.get("migration_timeout_seconds", 600)
+            migration_no_deps = task.get("migration_no_deps", True)
+            compose_profiles = task.get("compose_profiles") or []
 
             current_phase = "setup"
             actual_commit = None
@@ -218,7 +228,12 @@ class Agent:
                 return self.client.send_logs(task_id, seq, phase, content)
 
             log_collector = LogCollector(send_logs)
-            deployer = Deployer(self.settings.workdir, log_collector, project_id=project_id)
+            deployer = Deployer(
+                self.settings.workdir,
+                log_collector,
+                project_id=project_id,
+                compose_profiles=compose_profiles,
+            )
 
             if not self.client.start_task(task_id):
                 logger.error(f"Failed to start task {task_id}")
@@ -251,6 +266,11 @@ class Agent:
                     pre_deploy=pre_deploy,
                     post_deploy=post_deploy,
                     project_id=project_id,
+                    compose_profiles=compose_profiles,
+                    migration_service=migration_service,
+                    migration_command=migration_command,
+                    migration_timeout_seconds=migration_timeout,
+                    migration_no_deps=migration_no_deps,
                 )
                 actual_commit = deploy_result.get("commit")
                 previous_commit = deploy_result.get("previous_commit")
@@ -265,6 +285,7 @@ class Agent:
                     health_result = self.health_checker.check_http_health(
                         healthcheck_url,
                         timeout=healthcheck_timeout,
+                        expected_status=healthcheck_expected_status,
                     )
                     logger.info(f"Health check result: {health_result}")
                     

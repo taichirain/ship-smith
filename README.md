@@ -90,6 +90,32 @@ bash packages/agent/install.sh \
 
 P0 的范围是“单机多项目”；多目标/多服务器编排暂未启用。
 
+## 构建后迁移与 Compose profiles（Phase 2.5）
+
+项目可以通过 API 配置：
+
+- `migration_service`：执行迁移的 Compose 服务，例如 `api`
+- `migration_command`：迁移命令，按 argv 拆分执行，例如 `alembic upgrade head`
+- `migration_timeout_seconds`：迁移超时，默认 600 秒
+- `migration_no_deps`：默认 `true`，迁移容器不自动拉起依赖服务
+- `compose_profiles`：显式启用的 Compose profiles，例如 `["data-sync"]` 或 `["sync"]`
+- `healthcheck_url` / `healthcheck_expected_status`：建议指向 `/ready`，默认期望 200
+
+部署顺序变为：
+
+```text
+pre_deploy（构建前，可选）
+→ build / pull
+→ migration（构建后、启动前，可选）
+→ up -d
+→ post_deploy
+→ /ready 健康检查
+```
+
+迁移失败时不会执行 `up`，旧容器保持不变，部署记录标记 `failure_phase="migration"`。迁移命令走 `docker compose run --rm --no-deps <service> <argv...>`，不经过 shell；需要管道或重定向时请用 pre/post hook。同一个工作目录的部署有文件锁，避免并发迁移；如果多个项目共享同一个数据库，迁移命令自身仍需使用数据库级 advisory lock，ShipSmith 只能保证同一工作目录不并发。
+
+注意：ShipSmith 只负责执行配置好的迁移命令，不决定 DDL 归属。Forge 的 `migration_command` 只应包含 Forge 自己的 schema 变更；行情表后续 DDL 由 alpha-market-data 维护，不要把它加进 Forge 的 Alembic。
+
 ## 目录结构
 
 ```
