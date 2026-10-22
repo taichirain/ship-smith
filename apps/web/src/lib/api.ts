@@ -26,7 +26,13 @@ export interface Project {
   deploy_strategy: string;
   healthcheck_url: string | null;
   healthcheck_timeout_seconds: number;
+  healthcheck_expected_status: number;
   flags_file_path: string;
+  migration_service: string;
+  migration_command: string | null;
+  migration_timeout_seconds: number;
+  migration_no_deps: boolean;
+  compose_profiles: string[];
   agent_id: string;
   agent_token?: string;
   webhook_endpoint_id?: string;
@@ -73,7 +79,13 @@ export interface ProjectUpdate {
   deploy_strategy?: string;
   healthcheck_url?: string | null;
   healthcheck_timeout_seconds?: number;
+  healthcheck_expected_status?: number;
   flags_file_path?: string;
+  migration_service?: string;
+  migration_command?: string | null;
+  migration_timeout_seconds?: number;
+  migration_no_deps?: boolean;
+  compose_profiles?: string[];
   webhook_secret?: string;
   notes?: string | null;
   release_notes_hint?: string | null;

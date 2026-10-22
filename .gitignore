@@ -61,3 +61,6 @@ logs/
 
 # Alembic
 versions/*.pyc
+
+# TypeScript incremental build cache
+*.tsbuildinfo

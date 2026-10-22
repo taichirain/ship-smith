@@ -14,6 +14,7 @@ import {
   Info,
   X,
   Loader2,
+  Database,
 } from 'lucide-react';
 import { api, Project, EnvironmentType, GitBranchInfo, GitCredentialType, ComposeServiceInfo } from '@/lib/api';
 
@@ -60,6 +61,33 @@ const ENVIRONMENT_OPTIONS: { value: EnvironmentType; label: string; color: strin
 
 const PROJECT_WIZARD_DRAFT_KEY = 'shipsmith_project_wizard_draft_v1';
 
+const FORM_DEFAULTS: Partial<WizardFormData> = {
+  environment: null,
+  git_branch: 'main',
+  compose_file: 'docker-compose.yml',
+  compose_service: 'app',
+  healthcheck_url: '',
+  healthcheck_timeout_seconds: 10,
+  healthcheck_expected_status: 200,
+  migration_service: '',
+  migration_command: '',
+  migration_timeout_seconds: 600,
+  migration_no_deps: true,
+  compose_profiles: '',
+};
+
+function isFormEmpty(data: WizardFormData): boolean {
+  return !Object.entries(data).some(([key, value]) => {
+    const defaultValue = FORM_DEFAULTS[key as keyof WizardFormData];
+    if (defaultValue === undefined) {
+      if (typeof value === 'string') return value.trim() !== '';
+      return value !== null && value !== undefined;
+    }
+    if (typeof value === 'string') return value.trim() !== String(defaultValue).trim();
+    return value !== defaultValue;
+  });
+}
+
 interface WizardFormData {
   name: string;
   environment: EnvironmentType | null;
@@ -76,6 +104,12 @@ interface WizardFormData {
   compose_service: string;
   healthcheck_url: string;
   healthcheck_timeout_seconds: number;
+  healthcheck_expected_status: number;
+  migration_service: string;
+  migration_command: string;
+  migration_timeout_seconds: number;
+  migration_no_deps: boolean;
+  compose_profiles: string;
 }
 
 interface ProjectWizardProps {
@@ -112,6 +146,12 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     compose_service: 'app',
     healthcheck_url: '',
     healthcheck_timeout_seconds: 10,
+    healthcheck_expected_status: 200,
+    migration_service: '',
+    migration_command: '',
+    migration_timeout_seconds: 600,
+    migration_no_deps: true,
+    compose_profiles: '',
   });
 
   const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
@@ -289,11 +329,7 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     if (typeof window === 'undefined' || !hasLoadedDraft) return;
 
     const { git_credential_token, git_credential_ssh_private_key, ...safeFormData } = formData;
-    const isEmpty = !Object.values(safeFormData).some((value) => {
-      if (typeof value === 'string') return value.trim() !== '' && value !== 'main' && value !== 'docker-compose.yml' && value !== 'app';
-      if (typeof value === 'number') return value !== 10;
-      return value !== null && value !== undefined;
-    });
+    const isEmpty = isFormEmpty(safeFormData as WizardFormData);
 
     if (isEmpty && currentStep === 0) {
       window.localStorage.removeItem(PROJECT_WIZARD_DRAFT_KEY);
@@ -313,18 +349,7 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
   };
 
   const isDirty = (): boolean => {
-    return Object.entries(formData).some(([key, value]) => {
-      if (key === 'environment') return value !== null;
-      if (typeof value === 'number') return value !== 10;
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (key === 'git_branch') return trimmed !== '' && trimmed !== 'main';
-        if (key === 'compose_file') return trimmed !== '' && trimmed !== 'docker-compose.yml';
-        if (key === 'compose_service') return trimmed !== '' && trimmed !== 'app';
-        return trimmed !== '';
-      }
-      return false;
-    }) || currentStep > 0;
+    return !isFormEmpty(formData) || currentStep > 0;
   };
 
   const handleClose = () => {
@@ -357,6 +382,10 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
   };
 
   const shipsmithYaml = useMemo(() => {
+    const profiles = formData.compose_profiles
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
     return `project: ${formData.name}
 git:
   repo: ${formData.git_repo || '<git_repo>'}
@@ -364,6 +393,12 @@ git:
 deploy:
   workdir: ${formData.deploy_workdir || '<deploy_workdir>'}
   strategy: compose-build
+${formData.migration_command ? `  migration:
+    service: ${formData.migration_service || '<service>'}
+    command: ${formData.migration_command}
+    timeout_seconds: ${formData.migration_timeout_seconds}
+    no_deps: ${formData.migration_no_deps}` : ''}
+${profiles.length > 0 ? `  compose_profiles: [${profiles.join(', ')}]` : ''}
 compose:
   file: ${formData.compose_file || 'docker-compose.yml'}
   service: ${formData.compose_service || 'app'}
@@ -372,7 +407,8 @@ flags:
 ${formData.healthcheck_url ? `health_check:
   type: http
   url: ${formData.healthcheck_url}
-  timeout_seconds: ${formData.healthcheck_timeout_seconds}` : ''}`;
+  timeout_seconds: ${formData.healthcheck_timeout_seconds}
+  expected_status: ${formData.healthcheck_expected_status}` : ''}`;
   }, [formData]);
 
   const canProceed = (): boolean => {
@@ -440,10 +476,19 @@ ${formData.healthcheck_url ? `health_check:
         deploy_workdir: formData.deploy_workdir,
         flags_file_path: formData.flags_file_path,
         healthcheck_url: formData.healthcheck_url || null,
+        healthcheck_expected_status: formData.healthcheck_expected_status,
         deploy_strategy: 'compose-build',
         compose_file: formData.compose_file,
         compose_service: formData.compose_service,
         healthcheck_timeout_seconds: formData.healthcheck_timeout_seconds,
+        migration_service: formData.migration_service.trim() || undefined,
+        migration_command: formData.migration_command.trim() || undefined,
+        migration_timeout_seconds: formData.migration_timeout_seconds,
+        migration_no_deps: formData.migration_no_deps,
+        compose_profiles: formData.compose_profiles
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
       });
       clearDraft();
       onSuccess(project);
@@ -829,6 +874,93 @@ ${formData.healthcheck_url ? `health_check:
               </p>
             </div>
 
+            <div>
+              <label className="label">健康检查期望状态码</label>
+              <input
+                type="number"
+                className="input"
+                min="100"
+                max="599"
+                value={formData.healthcheck_expected_status}
+                onChange={(e) => updateField('healthcheck_expected_status', parseInt(e.target.value) || 200)}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                /ready 通常返回 200；如需其他状态码可调整
+              </p>
+            </div>
+
+            <div className="border-t border-gray-200 pt-4">
+              <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                <Database className="w-4 h-4 text-gray-500" />
+                迁移与 Compose Profiles（可选）
+              </h4>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">迁移服务</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={formData.migration_service}
+                      onChange={(e) => updateField('migration_service', e.target.value)}
+                      placeholder="api"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      执行迁移的 Compose 服务名，配置迁移命令时必填
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">迁移超时（秒）</label>
+                    <input
+                      type="number"
+                      className="input"
+                      min="1"
+                      max="7200"
+                      value={formData.migration_timeout_seconds}
+                      onChange={(e) => updateField('migration_timeout_seconds', parseInt(e.target.value) || 600)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">迁移命令</label>
+                  <textarea
+                    className="input min-h-[72px]"
+                    value={formData.migration_command}
+                    onChange={(e) => updateField('migration_command', e.target.value)}
+                    placeholder="alembic upgrade head"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    构建后、启动前执行；按 argv 拆分，不走 shell。留空则不执行迁移
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="wizard-migration-no-deps"
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600"
+                    checked={formData.migration_no_deps}
+                    onChange={(e) => updateField('migration_no_deps', e.target.checked)}
+                  />
+                  <label htmlFor="wizard-migration-no-deps" className="text-sm text-gray-700">
+                    Migration without dependencies（--no-deps，默认不拉起依赖服务）
+                  </label>
+                </div>
+                <div>
+                  <label className="label">Compose Profiles</label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={formData.compose_profiles}
+                    onChange={(e) => updateField('compose_profiles', e.target.value)}
+                    placeholder="data-sync, sync"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    逗号分隔；留空表示不启用任何 profile
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
               <div className="flex items-start gap-2">
                 <Info className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
@@ -914,6 +1046,18 @@ ${formData.healthcheck_url ? `health_check:
                   <span className="text-gray-500">健康检查：</span>
                   <span className="text-gray-900 font-medium">
                     {formData.healthcheck_url || '未配置'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">迁移命令：</span>
+                  <span className="text-gray-900 font-medium">
+                    {formData.migration_command || '未配置'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Compose Profiles：</span>
+                  <span className="text-gray-900 font-medium">
+                    {formData.compose_profiles || '未启用'}
                   </span>
                 </div>
               </div>

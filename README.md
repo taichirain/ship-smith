@@ -114,6 +114,8 @@ pre_deploy（构建前，可选）
 
 迁移失败时不会执行 `up`，旧容器保持不变，部署记录标记 `failure_phase="migration"`。迁移命令走 `docker compose run --rm --no-deps <service> <argv...>`，不经过 shell；需要管道或重定向时请用 pre/post hook。同一个工作目录的部署有文件锁，避免并发迁移；如果多个项目共享同一个数据库，迁移命令自身仍需使用数据库级 advisory lock，ShipSmith 只能保证同一工作目录不并发。
 
+Panel 的创建项目表单（高级表单和向导）已支持配置 `migration_service`、`migration_command`、`migration_timeout_seconds`、`migration_no_deps`、`compose_profiles` 和 `healthcheck_expected_status`。
+
 注意：ShipSmith 只负责执行配置好的迁移命令，不决定 DDL 归属。Forge 的 `migration_command` 只应包含 Forge 自己的 schema 变更；行情表后续 DDL 由 alpha-market-data 维护，不要把它加进 Forge 的 Alembic。
 
 ## 健康检查与离线告警（Phase 3）
