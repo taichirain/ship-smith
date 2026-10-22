@@ -28,6 +28,10 @@ class Settings(BaseModel):
     flag_audits_retention_days: int = 90
     project_audits_retention_days: int = 90
 
+    agent_offline_threshold_seconds: int = 600
+    agent_monitor_interval_seconds: int = 60
+    health_monitor_enabled: bool = True
+
     llm_enabled: bool = False
     llm_provider: str = "openai"
     llm_api_key: str = ""
@@ -77,6 +81,9 @@ def get_settings() -> Settings:
         notification_deliveries_retention_days=int(os.environ.get("NOTIFICATION_DELIVERIES_RETENTION_DAYS", "30")),
         flag_audits_retention_days=int(os.environ.get("FLAG_AUDITS_RETENTION_DAYS", "90")),
         project_audits_retention_days=int(os.environ.get("PROJECT_AUDITS_RETENTION_DAYS", "90")),
+        agent_offline_threshold_seconds=int(os.environ.get("AGENT_OFFLINE_THRESHOLD_SECONDS", "600")),
+        agent_monitor_interval_seconds=int(os.environ.get("AGENT_MONITOR_INTERVAL_SECONDS", "60")),
+        health_monitor_enabled=os.environ.get("HEALTH_MONITOR_ENABLED", "true").lower() == "true",
         llm_enabled=os.environ.get("LLM_ENABLED", "false").lower() == "true",
         llm_provider=os.environ.get("LLM_PROVIDER", "openai"),
         llm_api_key=os.environ.get("LLM_API_KEY", ""),

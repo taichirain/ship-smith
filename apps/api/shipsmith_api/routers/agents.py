@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -7,6 +8,9 @@ from sqlalchemy.orm import Session
 from ..deps import get_db, get_current_agent
 from ..schemas import DeploymentResponse
 from ..security import decrypt_secret
+from ..monitor import DETECTED_OFFLINE_KEY, check_agent_offline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -52,75 +56,26 @@ def _cleanup_expired_tasks(db: Session):
     db.commit()
 
 
-OFFLINE_THRESHOLD_MINUTES = 10
-DETECTED_OFFLINE_KEY = "_detected_offline_at"
+@router.get("/config")
+async def get_agent_config(
+    db: Session = Depends(get_db),
+    current_agent: dict = Depends(get_current_agent),
+):
+    _, Project, _, _, _, _ = _import_db_models()
+    project = db.query(Project).filter(Project.id == current_agent["project_id"]).first()
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
 
-
-def _check_agent_offline(db: Session, project_id: int):
-    _, _, _, ProjectStatus, _, _ = _import_db_models()
-    from sqlalchemy import or_
-    
-    now = _get_now()
-    threshold = now - timedelta(minutes=OFFLINE_THRESHOLD_MINUTES)
-    
-    project_status = (
-        db.query(ProjectStatus)
-        .filter(ProjectStatus.project_id == project_id)
-        .first()
-    )
-    
-    if not project_status:
-        return
-    
-    snapshot = project_status.snapshot or {}
-    last_detected_str = snapshot.get(DETECTED_OFFLINE_KEY)
-    
-    is_currently_offline = (
-        project_status.agent_last_seen_at is None or 
-        project_status.agent_last_seen_at < threshold
-    )
-    
-    was_detected_offline = last_detected_str is not None
-    
-    if is_currently_offline and not was_detected_offline:
-        snapshot[DETECTED_OFFLINE_KEY] = now.isoformat()
-        project_status.snapshot = snapshot
-        project_status.updated_at = now
-        db.commit()
-        
-        event_details = {
-            "agent_id": snapshot.get("agent_id", "unknown") if isinstance(snapshot, dict) else "unknown",
-            "last_seen_at": project_status.agent_last_seen_at.isoformat() if project_status.agent_last_seen_at else None,
-            "offline_threshold_minutes": OFFLINE_THRESHOLD_MINUTES,
-        }
-
-        try:
-            from ..alerts import create_or_update_alert
-            create_or_update_alert(db, project_id, "agent_offline", event_details)
-        except Exception:
-            pass
-
-        try:
-            from ..notifications import dispatch_notification
-            dispatch_notification(db, project_id, "agent_offline", event_details)
-        except Exception:
-            pass
-    
-    elif not is_currently_offline and was_detected_offline:
-        if DETECTED_OFFLINE_KEY in snapshot:
-            del snapshot[DETECTED_OFFLINE_KEY]
-            project_status.snapshot = snapshot
-            project_status.updated_at = now
-            db.commit()
-
-            event_details = {
-                "agent_id": snapshot.get("agent_id", "unknown") if isinstance(snapshot, dict) else "unknown",
-            }
-            try:
-                from ..alerts import resolve_alert_by_fingerprint
-                resolve_alert_by_fingerprint(db, project_id, "agent_offline", event_details)
-            except Exception:
-                pass
+    return {
+        "project_id": project.id,
+        "project_name": project.name,
+        "healthcheck_url": project.healthcheck_url,
+        "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds,
+        "healthcheck_expected_status": project.healthcheck_expected_status,
+    }
 
 
 @router.get("/tasks")
@@ -128,13 +83,24 @@ async def poll_task(
     db: Session = Depends(get_db),
     current_agent: dict = Depends(get_current_agent),
 ):
-    Deployment, Project, _, _, DeploymentTarget, _ = _import_db_models()
+    Deployment, Project, _, ProjectStatus, DeploymentTarget, _ = _import_db_models()
 
     project_id = current_agent["project_id"]
     agent_id = current_agent["agent_id"]
 
     _cleanup_expired_tasks(db)
-    _check_agent_offline(db, project_id)
+
+    project_status = (
+        db.query(ProjectStatus)
+        .filter(ProjectStatus.project_id == project_id)
+        .first()
+    )
+    if project_status:
+        project_status.agent_last_seen_at = _get_now()
+        project_status.updated_at = _get_now()
+        db.commit()
+
+    check_agent_offline(db, project_id)
 
     deployment_target = (
         db.query(DeploymentTarget)
@@ -651,9 +617,12 @@ async def agent_heartbeat(
     event_to_send = None
     event_details = None
     old_health_status = None
+    new_health_status = "unknown"
 
     if project_status:
         old_health_status = project_status.health_status
+        previous_snapshot = project_status.snapshot if isinstance(project_status.snapshot, dict) else {}
+        detected_offline_at = previous_snapshot.get(DETECTED_OFFLINE_KEY)
         project_status.agent_last_seen_at = now
         if project_status.agent_first_seen_at is None:
             project_status.agent_first_seen_at = now
@@ -665,6 +634,8 @@ async def agent_heartbeat(
                 new_health_status = status_val
                 project_status.health_status = status_val
         project_status.snapshot = data
+        if detected_offline_at and isinstance(project_status.snapshot, dict):
+            project_status.snapshot[DETECTED_OFFLINE_KEY] = detected_offline_at
         project_status.updated_at = now
         
         if old_health_status and old_health_status != new_health_status:
@@ -691,7 +662,35 @@ async def agent_heartbeat(
                 }
 
     db.commit()
-    
+
+    if project_status and old_health_status != new_health_status:
+        logger.info(
+            "project %s health changed: %s -> %s",
+            project_id,
+            old_health_status,
+            new_health_status,
+        )
+
+    try:
+        check_agent_offline(db, project_id)
+    except Exception:
+        pass
+
+    if project_status and new_health_status == "healthy":
+        try:
+            from ..alerts import resolve_alert_by_fingerprint
+
+            resolved = resolve_alert_by_fingerprint(
+                db,
+                project_id,
+                "health_unhealthy",
+                {"agent_id": agent_id},
+            )
+            if resolved:
+                logger.info("resolved %s health alert(s) for project %s", len(resolved), project_id)
+        except Exception:
+            logger.exception("failed to resolve health alerts for project %s", project_id)
+
     if event_to_send and event_details:
         if event_to_send == "health_unhealthy":
             try:

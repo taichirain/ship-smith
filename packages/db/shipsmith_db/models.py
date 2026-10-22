@@ -10,7 +10,9 @@ from sqlalchemy import (
     DateTime,
     JSON,
     ForeignKey,
+    Index,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -301,7 +303,14 @@ class Alert(Base):
     project = relationship("Project")
 
     __table_args__ = (
-        UniqueConstraint("project_id", "fingerprint", "status", name="uq_alerts_project_fingerprint_open"),
+        Index(
+            "uq_alerts_project_fingerprint_active",
+            "project_id",
+            "fingerprint",
+            unique=True,
+            postgresql_where=text("status IN ('open', 'acknowledged')"),
+            sqlite_where=text("status IN ('open', 'acknowledged')"),
+        ),
     )
 
 

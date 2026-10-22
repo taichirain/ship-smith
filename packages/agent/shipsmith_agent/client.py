@@ -34,6 +34,22 @@ class CoreClient:
             self._client.close()
             self._client = None
 
+    def get_agent_config(self) -> Optional[Dict[str, Any]]:
+        try:
+            client = self._get_client()
+            response = client.get(f"{self.base_url}/agents/config")
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                logger.error("Agent token is invalid or expired")
+            else:
+                logger.error(f"Failed to fetch agent config: HTTP {e.response.status_code}")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to fetch agent config: {e}")
+            return None
+
     def poll_task(self) -> Optional[Dict[str, Any]]:
         try:
             client = self._get_client()

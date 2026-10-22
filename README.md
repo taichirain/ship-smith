@@ -116,6 +116,24 @@ pre_deploy（构建前，可选）
 
 注意：ShipSmith 只负责执行配置好的迁移命令，不决定 DDL 归属。Forge 的 `migration_command` 只应包含 Forge 自己的 schema 变更；行情表后续 DDL 由 alpha-market-data 维护，不要把它加进 Forge 的 Alembic。
 
+## 健康检查与离线告警（Phase 3）
+
+Agent 会从 Core 拉取项目的健康检查配置，并在每次心跳时检查 `healthcheck_url`：
+
+- `healthcheck_expected_status` 默认 200，适合 `/ready`
+- 部署执行期间上报 `unknown`，避免把部署重启误判为故障
+- 应用健康状态随心跳写入 `project_status`，并保留在 heartbeat 历史里
+
+服务端会周期性扫描 Agent 最后心跳时间：
+
+- `AGENT_OFFLINE_THRESHOLD_SECONDS`：离线阈值，默认 600 秒
+- `AGENT_MONITOR_INTERVAL_SECONDS`：扫描间隔，默认 60 秒
+- `HEALTH_MONITOR_ENABLED`：是否启动后台扫描，默认 true
+
+超过阈值会创建/更新 `agent_offline` 告警并发送通知；Agent 恢复心跳后自动 resolved，并发送恢复通知。应用健康从 `unhealthy` 恢复为 `healthy` 时也会 resolved 对应的健康告警。
+
+当前后台扫描按单个 API 进程设计；如果以后跑多个 API worker，需要给扫描器加数据库 advisory lock，避免重复扫描。
+
 ## 目录结构
 
 ```

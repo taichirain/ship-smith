@@ -70,6 +70,9 @@ class Agent:
         self._current_task_id: Optional[int] = None
         self._task_heartbeat_thread: Optional[threading.Thread] = None
         self._task_running = False
+        self._project_config: Optional[Dict[str, Any]] = None
+        self._project_config_updated_at = 0.0
+        self._health_lock = threading.Lock()
 
         if not self.settings.agent_token:
             raise ValueError("SHIPSMITH_AGENT_TOKEN environment variable is required")
@@ -88,19 +91,37 @@ class Agent:
                 self.client.send_task_heartbeat(task_id)
         logger.debug(f"Task heartbeat loop stopped for task {task_id}")
 
+    def _refresh_project_config(self) -> None:
+        result = self.client.get_agent_config()
+        if result:
+            self._project_config = result
+            self._project_config_updated_at = time.time()
+
     def _collect_and_send_heartbeat(self):
         system_metrics = self.health_checker.get_system_metrics()
         containers = self.health_checker.get_container_statuses()
         runtime = self.health_checker.get_runtime_info()
+
+        app_health: Dict[str, Any] = {"status": "unknown"}
+        if self._task_running:
+            app_health = {"status": "unknown", "reason": "deployment_in_progress"}
+        else:
+            config = self._project_config or {}
+            health_url = config.get("healthcheck_url")
+            if health_url:
+                with self._health_lock:
+                    app_health = self.health_checker.check_http_health(
+                        health_url,
+                        timeout=config.get("healthcheck_timeout_seconds", 10),
+                        expected_status=config.get("healthcheck_expected_status", 200),
+                    )
 
         payload = {
             "agent_version": AGENT_VERSION,
             "system": system_metrics,
             "runtime": runtime,
             "containers": containers,
-            "app_health": {
-                "status": "unknown",
-            },
+            "app_health": app_health,
         }
 
         self.client.send_heartbeat(payload)
@@ -367,8 +388,11 @@ class Agent:
         self._running = True
         last_heartbeat = 0
         last_flags_sync = 0
+        last_project_config_refresh = 0
         flags_version = 0
 
+        self._refresh_project_config()
+        last_project_config_refresh = time.time()
         self._collect_and_send_heartbeat()
 
         while self._running:
@@ -391,6 +415,10 @@ class Agent:
                 if now - last_flags_sync >= self.settings.flags_sync_interval_seconds:
                     flags_version = self._sync_flags(flags_version)
                     last_flags_sync = now
+
+                if now - last_project_config_refresh >= self.settings.project_config_refresh_interval_seconds:
+                    self._refresh_project_config()
+                    last_project_config_refresh = now
 
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")

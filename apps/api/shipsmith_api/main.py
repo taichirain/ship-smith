@@ -1,20 +1,39 @@
+import asyncio
 import sys
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
+from .monitor import monitor_loop
 from .routers import auth_router, projects_router, deployments_router, flags_router, agents_router, webhooks_router, dashboard_router, notifications_router, alerts_router
 
 
-def create_app() -> FastAPI:
+def create_app(start_monitor: bool = True) -> FastAPI:
     settings = get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = None
+        if start_monitor and settings.health_monitor_enabled:
+            task = asyncio.create_task(monitor_loop())
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         description="ShipSmith Core API - Deployment and Feature Flag Control Plane",
+        lifespan=lifespan,
     )
 
     app.add_middleware(

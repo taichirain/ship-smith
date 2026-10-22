@@ -14,6 +14,7 @@ class AgentSettings(BaseModel):
     poll_interval_seconds: int = 30
     heartbeat_interval_seconds: int = 30
     flags_sync_interval_seconds: int = 30
+    project_config_refresh_interval_seconds: int = 60
 
     log_level: str = "INFO"
 
@@ -47,5 +48,6 @@ def get_settings() -> AgentSettings:
         poll_interval_seconds=int(os.environ.get("SHIPSMITH_POLL_INTERVAL", "30")),
         heartbeat_interval_seconds=int(os.environ.get("SHIPSMITH_HEARTBEAT_INTERVAL", "30")),
         flags_sync_interval_seconds=int(os.environ.get("SHIPSMITH_FLAGS_INTERVAL", "30")),
+        project_config_refresh_interval_seconds=int(os.environ.get("SHIPSMITH_PROJECT_CONFIG_INTERVAL", "60")),
         log_level=os.environ.get("SHIPSMITH_LOG_LEVEL", "INFO"),
     )

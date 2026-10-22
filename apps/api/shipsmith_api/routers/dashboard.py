@@ -6,6 +6,7 @@ from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
 from ..deps import get_db, get_current_user
+from ..config import get_settings
 from ..schemas import (
     DashboardSummaryResponse,
     DashboardSummary,
@@ -15,9 +16,6 @@ from ..schemas import (
 
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
-
-OFFLINE_THRESHOLD_MINUTES = 30
-
 
 def _import_db_models():
     import sys
@@ -37,7 +35,8 @@ def _is_offline(agent_last_seen_at: datetime) -> bool:
     if not agent_last_seen_at:
         return True
     now = datetime.utcnow()
-    return (now - agent_last_seen_at) > timedelta(minutes=OFFLINE_THRESHOLD_MINUTES)
+    threshold = timedelta(seconds=get_settings().agent_offline_threshold_seconds)
+    return (now - agent_last_seen_at) > threshold
 
 
 def _get_deployment_summary(db: Session, since: datetime) -> dict:
@@ -277,54 +276,6 @@ async def get_dashboard_summary(
     now = datetime.utcnow()
     last_24h = now - timedelta(hours=24)
     
-    Project, ProjectStatus, _, _, _ = _import_db_models()
-    OFFLINE_DETECT_KEY = "_detected_offline_at"
-    OFFLINE_THRESHOLD_MINUTES = 10
-    
-    projects = db.query(Project).all()
-    for project in projects:
-        project_status = (
-            db.query(ProjectStatus)
-            .filter(ProjectStatus.project_id == project.id)
-            .first()
-        )
-        if not project_status:
-            continue
-        
-        snapshot = project_status.snapshot or {}
-        last_detected = snapshot.get(OFFLINE_DETECT_KEY)
-        agent_last_seen = project_status.agent_last_seen_at
-        
-        threshold = now - timedelta(minutes=OFFLINE_THRESHOLD_MINUTES)
-        is_offline = agent_last_seen is None or agent_last_seen < threshold
-        
-        if is_offline and last_detected is None:
-            snapshot[OFFLINE_DETECT_KEY] = now.isoformat()
-            project_status.snapshot = snapshot
-            project_status.updated_at = now
-            db.commit()
-            
-            try:
-                from shipsmith_api.notifications import dispatch_notification
-                dispatch_notification(
-                    db,
-                    project.id,
-                    "agent_offline",
-                    {
-                        "agent_id": snapshot.get("agent_id", "unknown") if isinstance(snapshot, dict) else "unknown",
-                        "last_seen_at": agent_last_seen.isoformat() if agent_last_seen else None,
-                        "offline_threshold_minutes": OFFLINE_THRESHOLD_MINUTES,
-                    },
-                )
-            except Exception:
-                pass
-        elif not is_offline and last_detected is not None:
-            if OFFLINE_DETECT_KEY in snapshot:
-                del snapshot[OFFLINE_DETECT_KEY]
-                project_status.snapshot = snapshot
-                project_status.updated_at = now
-                db.commit()
-
     health_summary = _get_health_summary(db)
     deploy_summary = _get_deployment_summary(db, last_24h)
     anomaly_projects = _get_anomaly_projects(db)

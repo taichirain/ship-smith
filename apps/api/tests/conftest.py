@@ -151,7 +151,7 @@ def test_feature_flag(test_session: Session, test_project: Project):
 
 @pytest.fixture
 def client(test_session: Session):
-    app = create_app()
+    app = create_app(start_monitor=False)
 
     def override_get_db():
         try:
