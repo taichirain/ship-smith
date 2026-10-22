@@ -76,9 +76,11 @@ Schedule it with cron or a systemd timer, for example daily at 03:10. Keep at le
 
 This restores the dump into a throwaway Postgres container and prints row counts. It never touches the production database.
 
-## 6. Restore
+For a first isolated Core drill, run `bash scripts/drill_shipsmith_core.sh`. It creates a uniquely named Compose project and temporary PostgreSQL volume, then checks build, migration, API health, backup, isolated restore, and a repeated migration. It removes only that temporary project and volume on exit. The drill does **not** test an application rollback or a real Agent process losing its connection; test those separately in staging before a production release. The in-process Core outage/reconnect regression is `pytest apps/api/tests/test_outbox_reconnect.py`.
 
-Restore replaces the database contents. Stop the application containers first, then restore into the running postgres service:
+## 6. Disaster restore (never use for a drill)
+
+The following procedure **deletes and replaces the target database**. It is for actual disaster recovery, not rehearsal. Before running it, record the exact Compose project and database names, confirm that the backup belongs to that environment, run `./scripts/verify_shipsmith_backup.sh backups/<timestamp>`, and get an operator approval. For a rehearsal use Section 5 instead. Stop the application containers first, then restore into the running postgres service:
 
 ```bash
 # 1. stop app containers; postgres keeps running
@@ -97,7 +99,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T pos
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
-If you are restoring onto a completely new PostgreSQL instance, restore globals first (`pg_restore`/`psql` with `shipsmith-globals.sql`), then the data dump. Do not run a restore against a database that still contains data you need.
+After restore, verify `alembic_version`, project/deployment row counts, login, and Agent reconnect before allowing new deployments. If restore fails, leave API and web stopped; do not start them against a partially restored database.
+
+If you are restoring onto a completely new PostgreSQL instance, restore globals first with `psql` (the `shipsmith-globals.sql` file is plain SQL), then restore the data dump with `pg_restore`. Do not run a restore against a database that still contains data you need.
 
 ## 7. Recovery expectations
 

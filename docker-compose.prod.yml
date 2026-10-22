@@ -26,7 +26,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     env_file:
-      - .env.production
+      - ${SHIPSMITH_ENV_FILE:-.env.production}
     environment:
       ENV: production
       DB_HOST: postgres
