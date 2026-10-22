@@ -532,6 +532,7 @@ export default function ProjectDetailPage() {
 
   const [showEditForm, setShowEditForm] = useState(false);
   const [editFormData, setEditFormData] = useState<ProjectUpdate>({});
+  const [editComposeProfilesText, setEditComposeProfilesText] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [showRunbookForm, setShowRunbookForm] = useState(false);
@@ -874,8 +875,14 @@ export default function ProjectDetailPage() {
       deploy_strategy: project.deploy_strategy,
       healthcheck_url: project.healthcheck_url,
       healthcheck_timeout_seconds: project.healthcheck_timeout_seconds,
+      healthcheck_expected_status: project.healthcheck_expected_status,
       flags_file_path: project.flags_file_path,
+      migration_service: project.migration_service,
+      migration_command: project.migration_command,
+      migration_timeout_seconds: project.migration_timeout_seconds,
+      migration_no_deps: project.migration_no_deps,
     });
+    setEditComposeProfilesText((project.compose_profiles || []).join(', '));
     setShowEditForm(true);
   }
 
@@ -897,7 +904,17 @@ export default function ProjectDetailPage() {
     e.preventDefault();
     try {
       setSavingEdit(true);
-      const updated = await api.updateProject(projectId, editFormData);
+      const payload: ProjectUpdate = {
+        ...editFormData,
+        healthcheck_url: editFormData.healthcheck_url || null,
+        migration_service: (editFormData.migration_service || '').trim(),
+        migration_command: (editFormData.migration_command || '').trim() || null,
+        compose_profiles: editComposeProfilesText
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+      };
+      const updated = await api.updateProject(projectId, payload);
       setProject(updated);
       setShowEditForm(false);
       loadData();
@@ -1504,6 +1521,42 @@ export default function ProjectDetailPage() {
                     <code className="font-mono text-sm">{project.deploy_strategy}</code>
                     <p className="text-xs text-gray-400">
                       compose-build: 构建镜像后部署 | compose-pull: 直接拉取镜像
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 text-xs font-medium">Health Expected Status</span>
+                      <span className="text-xs text-gray-400">(健康检查期望状态码)</span>
+                    </div>
+                    <code className="font-mono text-sm">{project.healthcheck_expected_status}</code>
+                    <p className="text-xs text-gray-400">
+                      Agent 每次心跳按此状态码判定应用健康
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 text-xs font-medium">Migration</span>
+                      <span className="text-xs text-gray-400">(构建后迁移)</span>
+                    </div>
+                    <code className="font-mono text-sm">
+                      {project.migration_command
+                        ? `${project.migration_service}: ${project.migration_command}`
+                        : '—'}
+                    </code>
+                    <p className="text-xs text-gray-400">
+                      构建后、启动前执行；{project.migration_no_deps ? '不拉起依赖服务' : '允许拉起依赖服务'}，超时 {project.migration_timeout_seconds} 秒
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 text-xs font-medium">Compose Profiles</span>
+                      <span className="text-xs text-gray-400">(显式启用)</span>
+                    </div>
+                    <code className="font-mono text-sm">
+                      {(project.compose_profiles || []).length > 0 ? project.compose_profiles.join(', ') : '—'}
+                    </code>
+                    <p className="text-xs text-gray-400">
+                      部署时 docker compose 显式启用的 profile
                     </p>
                   </div>
                 </div>
@@ -3369,6 +3422,132 @@ flags_sync_interval_seconds: 30`}
                       />
                       <p className="text-xs text-gray-400 mt-1">
                         建议根据应用启动时间调整，默认 10 秒
+                      </p>
+                    </div>
+                    <div>
+                      <label className="label flex items-center justify-between">
+                        <span>Health Check Expected Status</span>
+                        <span className="text-xs text-gray-400 font-normal">期望状态码</span>
+                      </label>
+                      <input
+                        type="number"
+                        className="input"
+                        min="100"
+                        max="599"
+                        value={editFormData.healthcheck_expected_status || 200}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            healthcheck_expected_status: Number(e.target.value),
+                          })
+                        }
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        /ready 通常返回 200；如需其他状态码可在此调整
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 pt-4">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                    <Database className="w-4 h-4 text-gray-500" />
+                    迁移与 Compose Profiles
+                  </h3>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="label flex items-center justify-between">
+                          <span>Migration Service</span>
+                          <span className="text-xs text-gray-400 font-normal">迁移服务</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={editFormData.migration_service || ''}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              migration_service: e.target.value,
+                            })
+                          }
+                          placeholder="api"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                          执行迁移的 Compose 服务名，配置 Migration Command 时必填
+                        </p>
+                      </div>
+                      <div>
+                        <label className="label flex items-center justify-between">
+                          <span>Migration Timeout (seconds)</span>
+                          <span className="text-xs text-gray-400 font-normal">迁移超时</span>
+                        </label>
+                        <input
+                          type="number"
+                          className="input"
+                          min="1"
+                          max="7200"
+                          value={editFormData.migration_timeout_seconds || 600}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              migration_timeout_seconds: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label flex items-center justify-between">
+                        <span>Migration Command</span>
+                        <span className="text-xs text-gray-400 font-normal">迁移命令</span>
+                      </label>
+                      <textarea
+                        className="input min-h-[72px]"
+                        value={editFormData.migration_command || ''}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            migration_command: e.target.value,
+                          })
+                        }
+                        placeholder="alembic upgrade head"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        在构建后、启动前执行；按 argv 拆分，不走 shell。留空则不执行迁移
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="edit-migration-no-deps"
+                        className="h-4 w-4 rounded border-gray-300 text-primary-600"
+                        checked={editFormData.migration_no_deps ?? true}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            migration_no_deps: e.target.checked,
+                          })
+                        }
+                      />
+                      <label htmlFor="edit-migration-no-deps" className="text-sm text-gray-700">
+                        Migration without dependencies（--no-deps，默认不拉起依赖服务）
+                      </label>
+                    </div>
+                    <div>
+                      <label className="label flex items-center justify-between">
+                        <span>Compose Profiles</span>
+                        <span className="text-xs text-gray-400 font-normal">显式启用</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={editComposeProfilesText}
+                        onChange={(e) => setEditComposeProfilesText(e.target.value)}
+                        placeholder="data-sync, sync"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        逗号分隔；留空表示不启用任何 profile
                       </p>
                     </div>
                   </div>
