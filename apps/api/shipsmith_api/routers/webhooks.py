@@ -2,6 +2,7 @@ import hashlib
 import hmac
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -22,7 +23,7 @@ def _import_db_models():
 
 def _verify_github_signature(payload_bytes: bytes, secret: str, signature_header: str) -> bool:
     if not secret:
-        return True
+        return False
     
     if not signature_header or not signature_header.startswith("sha256="):
         return False
@@ -36,10 +37,10 @@ def _verify_github_signature(payload_bytes: bytes, secret: str, signature_header
 
 
 def _verify_gitlab_token(secret: str, token_header: Optional[str]) -> bool:
-    if not secret:
-        return True
-    
-    return token_header == secret
+    if not secret or not token_header:
+        return False
+
+    return hmac.compare_digest(token_header, secret)
 
 
 def _find_project_by_webhook_endpoint(db: Session, endpoint_id: str) -> Optional[object]:
@@ -47,27 +48,33 @@ def _find_project_by_webhook_endpoint(db: Session, endpoint_id: str) -> Optional
     return db.query(Project).filter(Project.webhook_endpoint_id == endpoint_id).first()
 
 
+def _normalize_repo_url(repo_url: str) -> str:
+    value = (repo_url or "").strip().lower()
+    if not value:
+        return ""
+
+    if value.startswith("git@") and ":" in value:
+        host, path = value[4:].split(":", 1)
+        value = f"{host}/{path}"
+    elif "://" in value:
+        parsed = urlparse(value)
+        value = f"{parsed.hostname or ''}{parsed.path}"
+
+    value = value.rstrip("/")
+    if value.endswith(".git"):
+        value = value[:-4]
+    return value
+
+
 def _find_project_by_repo(db: Session, repo_url: str) -> Optional[object]:
     Project, _, _ = _import_db_models()
 
-    projects = db.query(Project).all()
+    normalized_input = _normalize_repo_url(repo_url)
+    if not normalized_input:
+        return None
 
-    for project in projects:
-        normalized_project = project.git_repo.lower().strip()
-        normalized_input = repo_url.lower().strip()
-
-        if normalized_project == normalized_input:
-            return project
-
-        normalized_project = normalized_project.replace(".git", "")
-        normalized_input = normalized_input.replace(".git", "")
-
-        if normalized_project == normalized_input:
-            return project
-
-        if normalized_project.endswith(normalized_input):
-            return project
-        if normalized_input.endswith(normalized_project):
+    for project in db.query(Project).all():
+        if _normalize_repo_url(project.git_repo) == normalized_input:
             return project
 
     return None
@@ -168,10 +175,16 @@ async def github_webhook(
         return {"ok": True, "event": "ping", "message": "pong"}
 
     if deleted:
-        return {"ok": True, "event": event, "message": "Deleted branch event ignored"}
+        return {"ok": True, "event": event, "ignored": True, "message": "Deleted branch event ignored"}
 
     if event != "push":
-        return {"ok": False, "event": event, "message": "Only push events are processed"}
+        return {"ok": False, "event": event, "ignored": True, "message": "Only push events are processed"}
+
+    if not delivery:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing X-GitHub-Delivery header",
+        )
 
     if not clone_url and full_name:
         clone_url = f"git@github.com:{full_name}.git"
@@ -189,9 +202,15 @@ async def github_webhook(
             detail=f"Project not found for repository: {clone_url}",
         )
 
-    if not _verify_github_signature(payload_bytes, project.webhook_secret or "", signature_256):
+    if not project.webhook_secret:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Webhook secret is not configured for this project",
+        )
+
+    if not _verify_github_signature(payload_bytes, project.webhook_secret, signature_256):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid webhook signature",
         )
 
@@ -203,6 +222,7 @@ async def github_webhook(
             "project_id": project.id,
             "project_name": project.name,
             "created": False,
+            "duplicate": True,
             "message": "Delivery already processed (idempotent)",
         }
 
@@ -216,6 +236,7 @@ async def github_webhook(
             "project_id": project.id,
             "project_name": project.name,
             "created": False,
+            "ignored": True,
             "message": f"Branch '{branch}' does not match target branch '{project.git_branch}'",
         }
 
@@ -271,13 +292,13 @@ async def gitlab_webhook(
         return {"ok": True, "event": event, "message": "pong"}
 
     if event_name != "push":
-        return {"ok": False, "event": event, "event_name": event_name, "message": "Only push events are processed"}
+        return {"ok": False, "event": event, "event_name": event_name, "ignored": True, "message": "Only push events are processed"}
 
     if before == after and before != "0000000000000000000000000000000000000000":
-        return {"ok": True, "message": "No actual changes (force push to same commit?)"}
+        return {"ok": True, "ignored": True, "message": "No actual changes (force push to same commit?)"}
 
     if after == "0000000000000000000000000000000000000000":
-        return {"ok": True, "message": "Deleted branch event ignored"}
+        return {"ok": True, "ignored": True, "message": "Deleted branch event ignored"}
 
     if not clone_url:
         raise HTTPException(
@@ -292,9 +313,15 @@ async def gitlab_webhook(
             detail=f"Project not found for repository: {clone_url}",
         )
 
-    if not _verify_gitlab_token(project.webhook_secret or "", token):
+    if not project.webhook_secret:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Webhook secret is not configured for this project",
+        )
+
+    if not _verify_gitlab_token(project.webhook_secret, token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid webhook token",
         )
 
@@ -306,6 +333,7 @@ async def gitlab_webhook(
             "project_id": project.id,
             "project_name": project.name,
             "created": False,
+            "duplicate": True,
             "message": "Delivery already processed (idempotent)",
         }
 
@@ -318,6 +346,7 @@ async def gitlab_webhook(
             "project_id": project.id,
             "project_name": project.name,
             "created": False,
+            "ignored": True,
             "message": f"Branch '{branch}' does not match target branch '{project.git_branch}'",
         }
 

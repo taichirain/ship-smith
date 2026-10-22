@@ -47,6 +47,8 @@ class Project(Base):
     healthcheck_url = Column(Text)
     healthcheck_timeout_seconds = Column(Integer, nullable=False, default=10)
     flags_file_path = Column(Text, nullable=False)
+    pre_deploy_command = Column(Text)
+    post_deploy_command = Column(Text)
     agent_id = Column(String(64), nullable=False)
     agent_token_hash = Column(String(256), nullable=False)
     webhook_secret = Column(String(256))
@@ -80,6 +82,9 @@ class Deployment(Base):
     deploy_mode = Column(String(32), nullable=False, default="all-at-once")
     trigger_source = Column(String(16), nullable=False, default="manual")
     commit_hash = Column(String(40))
+    previous_commit_hash = Column(String(64))
+    image_snapshot = Column(JSON)
+    health_result = Column(JSON)
     target_deployment_id = Column(Integer, ForeignKey("deployments.id", ondelete="SET NULL"))
     log_excerpt = Column(Text)
     error_code = Column(String(64))
@@ -112,7 +117,7 @@ class DeploymentLog(Base):
     deployment_target = relationship("DeploymentTarget", back_populates="logs")
 
     __table_args__ = (
-        UniqueConstraint("deployment_id", "seq", name="uq_deployment_logs_deployment_seq"),
+        UniqueConstraint("deployment_target_id", "seq", name="uq_deployment_logs_target_seq"),
     )
 
 
@@ -344,6 +349,11 @@ class DeploymentTarget(Base):
     finished_at = Column(DateTime)
     error_code = Column(String(64))
     error_message = Column(Text)
+    target_commit_hash = Column(String(64))
+    previous_commit_hash = Column(String(64))
+    image_snapshot = Column(JSON)
+    health_result = Column(JSON)
+    failure_phase = Column(String(32))
     lease_expires_at = Column(DateTime)
     last_heartbeat_at = Column(DateTime)
 

@@ -72,6 +72,8 @@ class RuntimeConfig(BaseModel):
 
 
 class ProjectConfig(BaseModel):
+    """Future import/export format. Not used by the API or Agent at runtime."""
+
     project: str = Field(..., description="项目名称，仅用于标识")
     git: GitConfig
     deploy: DeployConfig

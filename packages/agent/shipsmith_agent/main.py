@@ -24,6 +24,37 @@ logger = logging.getLogger(__name__)
 
 TASK_HEARTBEAT_INTERVAL_SECONDS = 60
 
+_ERROR_PHASE_MAP = {
+    "git_clone_failed": "git_clone",
+    "git_fetch_failed": "git_fetch",
+    "target_not_found": "git_resolve",
+    "git_checkout_failed": "git_checkout",
+    "git_checkout_mismatch": "git_checkout",
+    "git_reset_failed": "git_reset",
+    "git_remote_missing": "preflight",
+    "git_remote_mismatch": "preflight",
+    "workdir_not_managed": "preflight",
+    "workdir_marker_invalid": "preflight",
+    "workdir_project_mismatch": "preflight",
+    "workdir_repo_mismatch": "preflight",
+    "workdir_dirty": "preflight",
+    "workdir_not_empty": "preflight",
+    "workdir_missing": "preflight",
+    "workdir_not_absolute": "preflight",
+    "workdir_forbidden": "preflight",
+    "compose_config_invalid": "docker_config",
+    "docker_build_failed": "docker_build",
+    "docker_pull_failed": "docker_pull",
+    "docker_up_failed": "docker_up",
+    "pre_deploy_failed": "pre_deploy",
+    "post_deploy_failed": "post_deploy",
+    "invalid_deploy_strategy": "preflight",
+}
+
+
+def _failure_phase(error_code: str, fallback: str) -> str:
+    return _ERROR_PHASE_MAP.get(error_code, fallback)
+
 
 class Agent:
     def __init__(self):
@@ -73,8 +104,13 @@ class Agent:
     def _sync_flags(self, current_version: int) -> int:
         result = self.client.sync_flags(current_version)
         if result and result.get("changed") and result.get("flags") is not None:
-            flags_file = self.settings.workdir + "/flags.json" if self.settings.workdir else "./flags.json"
+            flags_file = result.get("flags_file_path") or (
+                self.settings.workdir + "/flags.json" if self.settings.workdir else "./flags.json"
+            )
             try:
+                flags_dir = os.path.dirname(flags_file)
+                if flags_dir:
+                    os.makedirs(flags_dir, exist_ok=True)
                 tmp_file = flags_file + ".tmp"
                 with open(tmp_file, "w") as f:
                     json.dump(result["flags"], f, indent=2)
@@ -150,6 +186,7 @@ class Agent:
 
         self._task_running = True
         self._current_task_id = task_id
+        self._task_lock.acquire()
 
         try:
             if kind == "precheck":
@@ -165,6 +202,10 @@ class Agent:
             healthcheck_timeout = task.get("healthcheck_timeout_seconds", 10)
 
             current_phase = "setup"
+            actual_commit = None
+            previous_commit = None
+            image_snapshot: Dict[str, Any] = {}
+            health_result: Dict[str, Any] = {"status": "unknown"}
 
             self._task_heartbeat_thread = threading.Thread(
                 target=self._task_heartbeat_loop,
@@ -177,7 +218,7 @@ class Agent:
                 return self.client.send_logs(task_id, seq, phase, content)
 
             log_collector = LogCollector(send_logs)
-            deployer = Deployer(self.settings.workdir, log_collector)
+            deployer = Deployer(self.settings.workdir, log_collector, project_id=project_id)
 
             if not self.client.start_task(task_id):
                 logger.error(f"Failed to start task {task_id}")
@@ -192,9 +233,11 @@ class Agent:
                 git_credential_token = task.get("git_credential_token")
                 git_credential_ssh_private_key = task.get("git_credential_ssh_private_key")
                 git_credential_ssh_known_hosts = task.get("git_credential_ssh_known_hosts")
+                pre_deploy = task.get("pre_deploy_command")
+                post_deploy = task.get("post_deploy_command")
 
                 current_phase = "git_fetch"
-                actual_commit = deployer.deploy(
+                deploy_result = deployer.deploy(
                     git_repo=git_repo,
                     target_commit=commit_hash,
                     branch=git_branch,
@@ -205,14 +248,19 @@ class Agent:
                     git_credential_ssh_private_key=git_credential_ssh_private_key,
                     git_credential_ssh_known_hosts=git_credential_ssh_known_hosts,
                     compose_file=compose_file,
+                    pre_deploy=pre_deploy,
+                    post_deploy=post_deploy,
+                    project_id=project_id,
                 )
+                actual_commit = deploy_result.get("commit")
+                previous_commit = deploy_result.get("previous_commit")
+                image_snapshot = deploy_result.get("image_snapshot") or {}
 
                 final_status = "success" if kind == "deploy" else "rolled_back"
 
                 current_phase = "health_check"
                 log_collector.info("health_check", "Running health check...")
 
-                health_result = {"status": "unknown"}
                 if healthcheck_url:
                     health_result = self.health_checker.check_http_health(
                         healthcheck_url,
@@ -229,6 +277,10 @@ class Agent:
                             task_id=task_id,
                             status=final_status,
                             commit_hash=actual_commit,
+                            target_commit_hash=actual_commit,
+                            previous_commit_hash=previous_commit,
+                            image_snapshot=image_snapshot,
+                            health_result=health_result,
                             error_code="health_check_failed",
                             error_message=error_msg,
                             failure_phase="health_check",
@@ -242,6 +294,10 @@ class Agent:
                     task_id=task_id,
                     status=final_status,
                     commit_hash=actual_commit,
+                    target_commit_hash=actual_commit,
+                    previous_commit_hash=previous_commit,
+                    image_snapshot=image_snapshot,
+                    health_result=health_result,
                 )
                 logger.info(f"Task {task_id} completed: {final_status}")
 
@@ -251,9 +307,13 @@ class Agent:
                 self.client.finish_task(
                     task_id=task_id,
                     status=final_status,
+                    commit_hash=actual_commit,
+                    target_commit_hash=actual_commit,
+                    previous_commit_hash=previous_commit,
+                    image_snapshot=image_snapshot,
                     error_code=e.error_code,
                     error_message=e.message,
-                    failure_phase=current_phase,
+                    failure_phase=_failure_phase(e.error_code, current_phase),
                 )
             except Exception as e:
                 logger.error(f"Task {task_id} failed with unexpected error: {e}")
@@ -261,6 +321,10 @@ class Agent:
                 self.client.finish_task(
                     task_id=task_id,
                     status=final_status,
+                    commit_hash=actual_commit,
+                    target_commit_hash=actual_commit,
+                    previous_commit_hash=previous_commit,
+                    image_snapshot=image_snapshot,
                     error_code="unknown_error",
                     error_message=str(e),
                     failure_phase=current_phase,
@@ -271,6 +335,7 @@ class Agent:
             self._current_task_id = None
             if hasattr(self, "_task_heartbeat_thread") and self._task_heartbeat_thread and self._task_heartbeat_thread.is_alive():
                 self._task_heartbeat_thread.join(timeout=2)
+            self._task_lock.release()
 
     def run(self):
         logger.info(f"ShipSmith Agent starting (core: {self.settings.core_url})")

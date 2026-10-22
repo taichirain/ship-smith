@@ -342,12 +342,15 @@ async def create_project(
         compose_file=data.compose_file,
         compose_service=data.compose_service,
         deploy_strategy=data.deploy_strategy,
+        pre_deploy_command=data.pre_deploy_command,
+        post_deploy_command=data.post_deploy_command,
         healthcheck_url=data.healthcheck_url,
         healthcheck_timeout_seconds=data.healthcheck_timeout_seconds,
         flags_file_path=data.flags_file_path,
         agent_id=agent_id,
         agent_token_hash=agent_token_hash,
         webhook_endpoint_id=_generate_webhook_endpoint_id(),
+        webhook_secret=secrets.token_urlsafe(32),
     )
     db.add(project)
     db.flush()
@@ -754,8 +757,9 @@ async def generate_install_command(
 
     if req.target_platform == TargetPlatform.LINUX_SYSTEMD:
         command = (
-            f'curl -fsSL https://shipsmith.example.com/install.sh | '
-            f'sh -s -- --project-id {project.id} --agent-id {project.agent_id} '
+            f'curl -fsSL {settings.install_script_url} | '
+            f'sh -s -- --instance "project-{project.id}" '
+            f'--project-id {project.id} --agent-id {project.agent_id} '
             f'--core-url "{core_url_placeholder}/api/v1" '
             f'--token "{new_token}" '
             f'--workdir "{workdir}"'

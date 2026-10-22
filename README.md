@@ -68,6 +68,28 @@ npm run dev
 
 默认账号: `admin` / `admin123`
 
+## 单机多项目（P0 推荐用法）
+
+同一台机器上跑多个项目时，**一个项目一个独立 Agent 实例**。实例之间使用不同的
+token、配置目录、二进制文件名和 systemd 服务名，互不覆盖：
+
+```bash
+bash packages/agent/install.sh \
+  --instance alpha-forge \
+  --token "$AGENT_TOKEN" \
+  --core-url "https://shipsmith.example.com/api/v1" \
+  --workdir /srv/shipsmith/alpha-forge
+```
+
+- 默认配置目录：`/etc/shipsmith/<instance>`（非 root 为 `~/.config/shipsmith/<instance>`）
+- 默认服务名：`shipsmith-agent-<instance>.service`
+- 重复安装会被拒绝；`--force` 只替换指定实例，不影响其他项目
+- 部署目录会写入 `.shipsmith/project.json` 归属标记
+- 工作目录有本地改动、不是 ShipSmith 管理的目录、或 remote 不匹配时，部署会被拒绝
+- 部署命令有超时和逐行日志；Git 凭据、token 等敏感串会从日志中脱敏
+
+P0 的范围是“单机多项目”；多目标/多服务器编排暂未启用。
+
 ## 目录结构
 
 ```

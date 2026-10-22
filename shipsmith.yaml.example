@@ -1,3 +1,6 @@
+# NOTE: This file is not read at runtime in the current MVP.
+# The database (project settings in ShipSmith) is the single source of truth.
+# This example is kept only as a future import/export format.
 project: "my-saas"
 
 git:

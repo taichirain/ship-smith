@@ -27,7 +27,7 @@ async def get_deployment(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    Deployment, _ = _import_db_models()
+    Deployment, _, _, _ = _import_db_models()
 
     deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
     if not deployment:
@@ -47,7 +47,7 @@ async def get_deployment_logs(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    Deployment, DeploymentLog = _import_db_models()
+    Deployment, DeploymentLog, _, _ = _import_db_models()
 
     deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
     if not deployment:
@@ -116,6 +116,11 @@ async def get_deployment_detail(
             "agent_id": t.agent_id,
             "status": t.status,
             "commit_hash": t.commit_hash,
+            "target_commit_hash": t.target_commit_hash,
+            "previous_commit_hash": t.previous_commit_hash,
+            "image_snapshot": t.image_snapshot,
+            "health_result": t.health_result,
+            "failure_phase": t.failure_phase,
             "started_at": t.started_at.isoformat() if t.started_at else None,
             "finished_at": t.finished_at.isoformat() if t.finished_at else None,
             "error_code": t.error_code,
@@ -265,7 +270,7 @@ async def get_deployment_failure_explanation(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    Deployment, DeploymentLog = _import_db_models()
+    Deployment, DeploymentLog, _, _ = _import_db_models()
 
     deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
     if not deployment:
@@ -309,7 +314,7 @@ async def download_deployment_logs(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    Deployment, DeploymentLog = _import_db_models()
+    Deployment, DeploymentLog, _, _ = _import_db_models()
 
     deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
     if not deployment:

@@ -102,7 +102,7 @@ def create_or_update_alert(
         status="open",
         title=title,
         message=message,
-        metadata=event_details,
+        alert_metadata=event_details,
         first_seen_at=now,
         last_seen_at=now,
     )

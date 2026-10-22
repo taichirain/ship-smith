@@ -102,6 +102,10 @@ class CoreClient:
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         failure_phase: Optional[str] = None,
+        target_commit_hash: Optional[str] = None,
+        previous_commit_hash: Optional[str] = None,
+        image_snapshot: Optional[Dict[str, Any]] = None,
+        health_result: Optional[Dict[str, Any]] = None,
     ) -> bool:
         try:
             client = self._get_client()
@@ -113,6 +117,14 @@ class CoreClient:
             }
             if failure_phase:
                 payload["failure_phase"] = failure_phase
+            if target_commit_hash:
+                payload["target_commit_hash"] = target_commit_hash
+            if previous_commit_hash:
+                payload["previous_commit_hash"] = previous_commit_hash
+            if image_snapshot is not None:
+                payload["image_snapshot"] = image_snapshot
+            if health_result is not None:
+                payload["health_result"] = health_result
             response = client.post(
                 f"{self.base_url}/agents/tasks/{task_id}/finish",
                 json=payload,

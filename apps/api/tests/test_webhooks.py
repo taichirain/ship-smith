@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import hmac
 import hashlib
@@ -33,10 +35,12 @@ class TestWebhooks:
         )
         assert response.status_code in [200, 202]
 
-    def test_github_webhook_invalid_signature(self, client: TestClient, test_project):
+    def test_github_webhook_invalid_signature(self, client: TestClient, test_session, test_project):
         import secrets
 
         secret = secrets.token_hex(16)
+        test_project.webhook_secret = secret
+        test_session.commit()
         payload = '{"ref": "refs/heads/main", "commits": [{"id": "abc123"}], "repository": {"full_name": "test/repo"}}'
 
         wrong_signature = hmac.new(
@@ -57,7 +61,11 @@ class TestWebhooks:
         )
         assert response.status_code == 401
 
-    def test_github_webhook_no_signature(self, client: TestClient, test_project):
+    def test_github_webhook_no_signature(self, client: TestClient, test_session, test_project):
+        import secrets
+
+        test_project.webhook_secret = secrets.token_hex(16)
+        test_session.commit()
         payload = '{"ref": "refs/heads/main", "commits": [{"id": "abc123"}], "repository": {"full_name": "test/repo"}}'
 
         response = client.post(
@@ -151,7 +159,17 @@ class TestWebhooks:
         test_project.webhook_secret = secret
         test_session.commit()
 
-        payload = '{"ref": "refs/heads/main", "commits": [{"id": "abc123"}], "project": {"path_with_namespace": "test/repo"}}'
+        payload = json.dumps({
+            "object_kind": "push",
+            "ref": "refs/heads/main",
+            "before": "0000000000000000000000000000000000000000",
+            "after": "abc123",
+            "project": {
+                "git_http_url": "https://github.com/test/repo.git",
+                "git_ssh_url": "git@github.com:test/repo.git",
+                "web_url": "https://github.com/test/repo",
+            },
+        })
 
         response = client.post(
             f"/api/v1/webhooks/{test_project.webhook_endpoint_id}/gitlab",
@@ -164,8 +182,22 @@ class TestWebhooks:
         )
         assert response.status_code in [200, 202]
 
-    def test_gitlab_webhook_invalid_token(self, client: TestClient, test_project):
-        payload = '{"ref": "refs/heads/main", "commits": [{"id": "abc123"}], "project": {"path_with_namespace": "test/repo"}}'
+    def test_gitlab_webhook_invalid_token(self, client: TestClient, test_session, test_project):
+        import secrets
+
+        test_project.webhook_secret = secrets.token_hex(16)
+        test_session.commit()
+        payload = json.dumps({
+            "object_kind": "push",
+            "ref": "refs/heads/main",
+            "before": "0000000000000000000000000000000000000000",
+            "after": "abc123",
+            "project": {
+                "git_http_url": "https://github.com/test/repo.git",
+                "git_ssh_url": "git@github.com:test/repo.git",
+                "web_url": "https://github.com/test/repo",
+            },
+        })
 
         response = client.post(
             f"/api/v1/webhooks/{test_project.webhook_endpoint_id}/gitlab",

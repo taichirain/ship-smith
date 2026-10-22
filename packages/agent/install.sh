@@ -1,159 +1,184 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/shipsmith"
+INSTANCE="${SHIPSMITH_INSTANCE:-default}"
+INSTALL_DIR=""
+CONFIG_DIR=""
+SERVICE_NAME=""
 AGENT_TOKEN=""
 CORE_URL=""
 WORKDIR=""
+PROJECT_ID=""
+AGENT_ID=""
+DOWNLOAD_URL=""
+LOCAL_FILE=""
+FORCE=0
+NO_SYSTEMD=0
 
 show_help() {
-    echo "ShipSmith Agent Installer"
-    echo ""
-    echo "Usage: $0 [options]"
-    echo ""
-    echo "Options:"
-    echo "  -t, --token <token>     Agent token (required)"
-    echo "  -u, --core-url <url>    Core API URL (default: http://localhost:8000/api/v1)"
-    echo "  -w, --workdir <path>    Deploy work directory (required)"
-    echo "  -d, --download <url>    Download binary from URL (optional)"
-    echo "  -f, --file <path>       Use local binary file (optional)"
-    echo "  -h, --help              Show this help"
-    echo ""
-    echo "Environment variables:"
-    echo "  SHIPSMITH_AGENT_TOKEN   Alternative to --token"
-    echo "  SHIPSMITH_CORE_URL      Alternative to --core-url"
-    echo "  SHIPSMITH_WORKDIR       Alternative to --workdir"
+    cat <<'EOF'
+ShipSmith Agent Installer
+
+Usage:
+  install.sh --token <token> --workdir <path> [options]
+
+Required:
+  -t, --token <token>       Agent token
+  -w, --workdir <path>      Deploy work directory
+
+Options:
+  -u, --core-url <url>      Core API URL (default: http://localhost:8000/api/v1)
+  -n, --instance <name>     Instance name (default: default)
+      --name <name>         Alias for --instance
+  -c, --config-dir <path>   Config directory (default: /etc/shipsmith/<instance>)
+  -b, --bin-dir <path>      Binary directory (default: /usr/local/bin)
+  -s, --service-name <name> systemd service name
+      --project-id <id>     Optional project id stored in the env file
+      --agent-id <id>       Optional agent id stored in the env file
+  -d, --download <url>      Download the agent archive from a URL
+  -f, --file <path>         Use a local agent binary or archive
+      --force               Replace this instance's binary/config/service only
+      --no-systemd          Do not install or start a systemd service
+  -h, --help                Show this help
+
+Environment variables:
+  SHIPSMITH_AGENT_TOKEN, SHIPSMITH_CORE_URL, SHIPSMITH_WORKDIR,
+  SHIPSMITH_INSTANCE
+EOF
 }
 
 while [[ $# -gt 0 ]]; do
-    case $1 in
-        -t|--token)
-            AGENT_TOKEN="$2"
-            shift 2
-            ;;
-        -u|--core-url)
-            CORE_URL="$2"
-            shift 2
-            ;;
-        -w|--workdir)
-            WORKDIR="$2"
-            shift 2
-            ;;
-        -d|--download)
-            DOWNLOAD_URL="$2"
-            shift 2
-            ;;
-        -f|--file)
-            LOCAL_FILE="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $1"
-            show_help
-            exit 1
-            ;;
+    case "$1" in
+        -t|--token) AGENT_TOKEN="${2:-}"; shift 2 ;;
+        -u|--core-url) CORE_URL="${2:-}"; shift 2 ;;
+        -w|--workdir) WORKDIR="${2:-}"; shift 2 ;;
+        -n|--instance|--name) INSTANCE="${2:-}"; shift 2 ;;
+        -c|--config-dir) CONFIG_DIR="${2:-}"; shift 2 ;;
+        -b|--bin-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
+        -s|--service-name) SERVICE_NAME="${2:-}"; shift 2 ;;
+        --project-id) PROJECT_ID="${2:-}"; shift 2 ;;
+        --agent-id) AGENT_ID="${2:-}"; shift 2 ;;
+        -d|--download) DOWNLOAD_URL="${2:-}"; shift 2 ;;
+        -f|--file) LOCAL_FILE="${2:-}"; shift 2 ;;
+        --force) FORCE=1; shift ;;
+        --no-systemd) NO_SYSTEMD=1; shift ;;
+        -h|--help) show_help; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
     esac
 done
 
-AGENT_TOKEN="${AGENT_TOKEN:-${SHIPSMITH_AGENT_TOKEN}}"
+AGENT_TOKEN="${AGENT_TOKEN:-${SHIPSMITH_AGENT_TOKEN:-}}"
 CORE_URL="${CORE_URL:-${SHIPSMITH_CORE_URL:-http://localhost:8000/api/v1}}"
-WORKDIR="${WORKDIR:-${SHIPSMITH_WORKDIR}}"
+WORKDIR="${WORKDIR:-${SHIPSMITH_WORKDIR:-}}"
+
+case "${INSTANCE}" in
+    *[!A-Za-z0-9._-]*|"")
+        echo "Error: instance name may only contain letters, digits, dot, dash and underscore" >&2
+        exit 1
+        ;;
+esac
 
 if [ -z "${AGENT_TOKEN}" ]; then
-    echo "Error: Agent token is required (--token or SHIPSMITH_AGENT_TOKEN)"
-    echo ""
+    echo "Error: Agent token is required (--token or SHIPSMITH_AGENT_TOKEN)" >&2
     show_help
     exit 1
 fi
 
 if [ -z "${WORKDIR}" ]; then
-    echo "Error: Work directory is required (--workdir or SHIPSMITH_WORKDIR)"
-    echo ""
+    echo "Error: Work directory is required (--workdir or SHIPSMITH_WORKDIR)" >&2
     show_help
     exit 1
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+    INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
+    CONFIG_DIR="${CONFIG_DIR:-${HOME}/.config/shipsmith/${INSTANCE}}"
+else
+    INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+    CONFIG_DIR="${CONFIG_DIR:-/etc/shipsmith/${INSTANCE}}"
+fi
+SERVICE_NAME="${SERVICE_NAME:-shipsmith-agent-${INSTANCE}}"
+BINARY_PATH="${INSTALL_DIR}/shipsmith-agent-${INSTANCE}"
+RUN_USER="${SUDO_USER:-$(id -un)}"
+
+if [ -e "${CONFIG_DIR}/env" ] || [ -e "${BINARY_PATH}" ]; then
+    if [ "${FORCE}" -ne 1 ]; then
+        echo "Error: instance '${INSTANCE}' already exists at ${CONFIG_DIR}." >&2
+        echo "Use --force to replace only this instance, or choose another --instance." >&2
+        exit 1
+    fi
+fi
+
+if [ "${NO_SYSTEMD}" -eq 0 ] && [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+    if [ -e "/etc/systemd/system/${SERVICE_NAME}.service" ] && [ "${FORCE}" -ne 1 ]; then
+        echo "Error: systemd service ${SERVICE_NAME}.service already exists." >&2
+        echo "Use --force to replace only this instance, or choose another --service-name." >&2
+        exit 1
+    fi
 fi
 
 echo "========================================"
 echo "ShipSmith Agent Installer"
 echo "========================================"
-echo ""
+echo "Instance:    ${INSTANCE}"
 echo "Core URL:    ${CORE_URL}"
 echo "Workdir:     ${WORKDIR}"
 echo "Install dir: ${INSTALL_DIR}"
 echo "Config dir:  ${CONFIG_DIR}"
 echo ""
 
-if [ "$(id -u)" -ne 0 ]; then
-    echo "Warning: Running without sudo. Installing to user home directory..."
-    INSTALL_DIR="${HOME}/.local/bin"
-    CONFIG_DIR="${HOME}/.config/shipsmith"
-    echo "Adjusted install dir: ${INSTALL_DIR}"
-    echo "Adjusted config dir:  ${CONFIG_DIR}"
-    echo ""
-fi
-
 mkdir -p "${INSTALL_DIR}"
 mkdir -p "${CONFIG_DIR}"
 
-TEMP_DIR=$(mktemp -d)
-trap "rm -rf ${TEMP_DIR}" EXIT
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "${TEMP_DIR}"' EXIT
 
 if [ -n "${DOWNLOAD_URL}" ]; then
     echo "[1/4] Downloading agent..."
     curl -fsSL "${DOWNLOAD_URL}" -o "${TEMP_DIR}/shipsmith-agent.tar.gz"
-
-    echo "[2/4] Extracting..."
-    cd "${TEMP_DIR}"
-    tar -xzf "shipsmith-agent.tar.gz"
-
-    BINARY=$(find "${TEMP_DIR}" -name "shipsmith-agent" -type f | head -1)
-    if [ -z "${BINARY}" ]; then
-        echo "Error: Could not find shipsmith-agent binary in archive"
-        exit 1
-    fi
+    tar -xzf "${TEMP_DIR}/shipsmith-agent.tar.gz" -C "${TEMP_DIR}"
+    BINARY="$(find "${TEMP_DIR}" -name "shipsmith-agent" -type f | head -1)"
 elif [ -n "${LOCAL_FILE}" ]; then
     echo "[1/4] Using local file..."
-    if [ "${LOCAL_FILE: -7}" == ".tar.gz" ]; then
-        cd "${TEMP_DIR}"
-        tar -xzf "${LOCAL_FILE}"
-        BINARY=$(find "${TEMP_DIR}" -name "shipsmith-agent" -type f | head -1)
+    if [ "${LOCAL_FILE: -7}" = ".tar.gz" ]; then
+        tar -xzf "${LOCAL_FILE}" -C "${TEMP_DIR}"
+        BINARY="$(find "${TEMP_DIR}" -name "shipsmith-agent" -type f | head -1)"
     else
         BINARY="${LOCAL_FILE}"
     fi
 else
     echo "[1/4] Checking for local build..."
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    DIST_DIR="${SCRIPT_DIR}/dist"
+    BINARY="$(find "${SCRIPT_DIR}/dist" -name "shipsmith-agent" -type f | head -1 || true)"
+fi
 
-    BINARY=$(find "${DIST_DIR}" -name "shipsmith-agent" -type f | head -1)
-    if [ -z "${BINARY}" ]; then
-        echo "Error: No binary found."
-        echo ""
-        echo "Either:"
-        echo "  1. Run 'bash package.sh' first to build locally"
-        echo "  2. Use --download <url> to download"
-        echo "  3. Use --file <path> to specify a binary"
-        exit 1
+if [ -z "${BINARY:-}" ] || [ ! -f "${BINARY}" ]; then
+    echo "Error: No agent binary found." >&2
+    exit 1
+fi
+
+echo "[2/4] Installing binary for instance ${INSTANCE}..."
+cp "${BINARY}" "${BINARY_PATH}"
+chmod 755 "${BINARY_PATH}"
+
+if [ "${NO_SYSTEMD}" -eq 0 ] && [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+    if systemctl list-unit-files "${SERVICE_NAME}.service" >/dev/null 2>&1; then
+        systemctl stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
     fi
 fi
 
-echo "[2/4] Installing binary..."
-cp "${BINARY}" "${INSTALL_DIR}/shipsmith-agent"
-chmod +x "${INSTALL_DIR}/shipsmith-agent"
-
 echo "[3/4] Writing configuration..."
-cat > "${CONFIG_DIR}/env" << EOF
+cat > "${CONFIG_DIR}/env" <<EOF
 # ShipSmith Agent Configuration
+# Instance: ${INSTANCE}
 # Auto-generated by install.sh
 
 SHIPSMITH_CORE_URL=${CORE_URL}
 SHIPSMITH_AGENT_TOKEN=${AGENT_TOKEN}
 SHIPSMITH_WORKDIR=${WORKDIR}
+SHIPSMITH_INSTANCE=${INSTANCE}
+SHIPSMITH_PROJECT_ID=${PROJECT_ID}
+SHIPSMITH_AGENT_ID=${AGENT_ID}
 
 # Optional settings:
 # SHIPSMITH_POLL_INTERVAL=30
@@ -163,36 +188,43 @@ SHIPSMITH_WORKDIR=${WORKDIR}
 EOF
 chmod 600 "${CONFIG_DIR}/env"
 
-echo "[4/4] Setting up flags directory..."
-FLAGS_DIR=$(dirname "${WORKDIR}")
-mkdir -p "${FLAGS_DIR}"
-
-echo ""
-echo "========================================"
-echo "Installation complete!"
-echo "========================================"
-echo ""
-echo "Binary: ${INSTALL_DIR}/shipsmith-agent"
-echo "Config: ${CONFIG_DIR}/env"
-echo ""
-echo "To start the agent, run:"
-echo "  source ${CONFIG_DIR}/env && ${INSTALL_DIR}/shipsmith-agent"
-echo ""
-echo "Or create a systemd service:"
-echo ""
-cat << SVC
+echo "[4/4] Configuring service..."
+if [ "${NO_SYSTEMD}" -eq 0 ] && [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+    cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=ShipSmith Agent
-After=network.target
+Description=ShipSmith Agent (${INSTANCE})
+After=network-online.target docker.service
+Wants=network-online.target
 
 [Service]
+Type=simple
 EnvironmentFile=${CONFIG_DIR}/env
-ExecStart=${INSTALL_DIR}/shipsmith-agent
+ExecStart=${BINARY_PATH}
+WorkingDirectory=/
+User=${RUN_USER}
 Restart=always
 RestartSec=5
-User=$(whoami)
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now "${SERVICE_NAME}.service"
+    echo ""
+    echo "Service: ${SERVICE_NAME}.service"
+    echo "Status:  systemctl status ${SERVICE_NAME}.service"
+    echo "Logs:    journalctl -u ${SERVICE_NAME}.service -f"
+else
+    echo ""
+    echo "Start the agent manually:"
+    echo "  set -a; source ${CONFIG_DIR}/env; set +a"
+    echo "  ${BINARY_PATH}"
+    echo ""
+    echo "Or install a systemd unit that uses:"
+    echo "  EnvironmentFile=${CONFIG_DIR}/env"
+    echo "  ExecStart=${BINARY_PATH}"
+fi
 
-SVC
+echo ""
+echo "Installation complete for instance: ${INSTANCE}"

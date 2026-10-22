@@ -1,5 +1,7 @@
 import os
 import sys
+from datetime import datetime
+
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -21,8 +23,9 @@ sys.path.insert(
 )
 
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker, Session
-from shipsmith_db import Base, Project, ProjectStatus, Deployment, FeatureFlag, User
+from shipsmith_db import Base, Project, ProjectStatus, ProjectTarget, Deployment, FeatureFlag, User
 from shipsmith_api.main import create_app
 from fastapi.testclient import TestClient
 
@@ -35,6 +38,7 @@ def test_engine():
     engine = create_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
     yield engine
@@ -95,6 +99,16 @@ def test_project(test_session: Session):
         health_status="healthy",
     )
     test_session.add(project_status)
+
+    project_target = ProjectTarget(
+        project_id=project.id,
+        agent_id=project.agent_id,
+        name=f"{project.name}-default",
+        role="primary",
+        enabled=True,
+        order_index=0,
+    )
+    test_session.add(project_target)
     test_session.commit()
     test_session.refresh(project)
     return project
@@ -109,9 +123,9 @@ def test_deployment(test_session: Session, test_project: Project):
         trigger_source="manual",
         commit_hash="abc123def456",
         triggered_by="testuser",
-        queued_at="2026-01-01 00:00:00",
-        started_at="2026-01-01 00:01:00",
-        finished_at="2026-01-01 00:05:00",
+        queued_at=datetime(2026, 1, 1, 0, 0, 0),
+        started_at=datetime(2026, 1, 1, 0, 1, 0),
+        finished_at=datetime(2026, 1, 1, 0, 5, 0),
     )
     test_session.add(deployment)
     test_session.commit()

@@ -9,6 +9,7 @@ class Settings(BaseModel):
     app_version: str = "0.1.0"
     api_prefix: str = "/api/v1"
     public_core_url: str = ""
+    install_script_url: str = "https://shipsmith.example.com/install.sh"
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/shipsmith"
 
@@ -62,6 +63,7 @@ def get_settings() -> Settings:
         app_version=os.environ.get("APP_VERSION", "0.1.0"),
         api_prefix=os.environ.get("API_PREFIX", "/api/v1"),
         public_core_url=os.environ.get("PUBLIC_CORE_URL", ""),
+        install_script_url=os.environ.get("INSTALL_SCRIPT_URL", "https://shipsmith.example.com/install.sh"),
         database_url=os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/shipsmith"),
         jwt_secret_key=os.environ.get("JWT_SECRET_KEY", "change-me-in-production-please"),
         jwt_algorithm=os.environ.get("JWT_ALGORITHM", "HS256"),

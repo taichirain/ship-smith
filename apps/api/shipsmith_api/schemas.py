@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, Literal, Union
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Token(BaseModel):
@@ -36,6 +36,8 @@ class ProjectBase(BaseModel):
     healthcheck_url: Optional[str] = None
     healthcheck_timeout_seconds: int = Field(default=10, ge=1, le=300)
     flags_file_path: str
+    pre_deploy_command: Optional[str] = None
+    post_deploy_command: Optional[str] = None
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
     troubleshooting_hint: Optional[str] = None
@@ -46,7 +48,28 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    pass
+    @field_validator("deploy_workdir", "flags_file_path")
+    @classmethod
+    def paths_must_be_absolute(cls, value: str) -> str:
+        if not value.startswith("/"):
+            raise ValueError("must be an absolute path")
+        return value
+
+    @field_validator("deploy_workdir")
+    @classmethod
+    def workdir_must_be_dedicated(cls, value: str) -> str:
+        normalized = value.rstrip("/") or "/"
+        forbidden = {"/", "/home", "/root", "/opt", "/usr", "/var", "/etc", "/tmp", "/srv"}
+        if normalized in forbidden:
+            raise ValueError("deploy_workdir is too broad; choose a dedicated project directory")
+        return value
+
+    @field_validator("deploy_strategy")
+    @classmethod
+    def strategy_must_be_supported(cls, value: str) -> str:
+        if value not in {"compose-build", "compose-pull"}:
+            raise ValueError("must be compose-build or compose-pull")
+        return value
 
 
 class ProjectUpdate(BaseModel):
@@ -66,6 +89,8 @@ class ProjectUpdate(BaseModel):
     healthcheck_url: Optional[str] = None
     healthcheck_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=300)
     flags_file_path: Optional[str] = None
+    pre_deploy_command: Optional[str] = None
+    post_deploy_command: Optional[str] = None
     webhook_secret: Optional[str] = Field(default=None, max_length=256)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
@@ -74,6 +99,31 @@ class ProjectUpdate(BaseModel):
     metrics_url: Optional[str] = None
     logs_url: Optional[str] = None
     ssh_hint: Optional[str] = None
+
+    @field_validator("deploy_workdir", "flags_file_path")
+    @classmethod
+    def optional_paths_must_be_absolute(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.startswith("/"):
+            raise ValueError("must be an absolute path")
+        return value
+
+    @field_validator("deploy_workdir")
+    @classmethod
+    def optional_workdir_must_be_dedicated(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.rstrip("/") or "/"
+        forbidden = {"/", "/home", "/root", "/opt", "/usr", "/var", "/etc", "/tmp", "/srv"}
+        if normalized in forbidden:
+            raise ValueError("deploy_workdir is too broad; choose a dedicated project directory")
+        return value
+
+    @field_validator("deploy_strategy")
+    @classmethod
+    def optional_strategy_must_be_supported(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in {"compose-build", "compose-pull"}:
+            raise ValueError("must be compose-build or compose-pull")
+        return value
 
 
 class ProjectTargetBase(BaseModel):
@@ -188,6 +238,9 @@ class DeploymentResponse(BaseModel):
     deploy_mode: str = "all-at-once"
     trigger_source: str
     commit_hash: Optional[str] = None
+    previous_commit_hash: Optional[str] = None
+    image_snapshot: Optional[Dict[str, Any]] = None
+    health_result: Optional[Dict[str, Any]] = None
     target_deployment_id: Optional[int] = None
     log_excerpt: Optional[str] = None
     error_code: Optional[str] = None
@@ -209,6 +262,11 @@ class DeploymentTargetResponse(BaseModel):
     agent_id: str
     status: str
     commit_hash: Optional[str] = None
+    target_commit_hash: Optional[str] = None
+    previous_commit_hash: Optional[str] = None
+    image_snapshot: Optional[Dict[str, Any]] = None
+    health_result: Optional[Dict[str, Any]] = None
+    failure_phase: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     error_code: Optional[str] = None

@@ -4,7 +4,6 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from .config import get_settings
 from .security import decode_access_token
 
 
@@ -45,8 +44,14 @@ def get_current_user(
         )
 
     username = payload["sub"]
-    settings = get_settings()
-    if username != settings.admin_username:
+
+    import sys
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "packages", "db"))
+    from shipsmith_db import User
+
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",

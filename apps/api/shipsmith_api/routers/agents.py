@@ -179,6 +179,8 @@ async def poll_task(
             "healthcheck_url": project.healthcheck_url if project else None,
             "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds if project else 10,
             "flags_file_path": project.flags_file_path if project else None,
+            "pre_deploy_command": project.pre_deploy_command if project else None,
+            "post_deploy_command": project.post_deploy_command if project else None,
             "created_at": deployment.queued_at.isoformat() if deployment.queued_at else None,
         },
         "message": "Task available",
@@ -516,6 +518,15 @@ async def finish_task(
     deployment_target.commit_hash = data.get("commit_hash") or deployment_target.commit_hash
     deployment_target.error_code = data.get("error_code")
     deployment_target.error_message = data.get("error_message")
+    deployment_target.failure_phase = data.get("failure_phase") or deployment_target.failure_phase
+    if data.get("target_commit_hash"):
+        deployment_target.target_commit_hash = data.get("target_commit_hash")
+    if data.get("previous_commit_hash"):
+        deployment_target.previous_commit_hash = data.get("previous_commit_hash")
+    if data.get("image_snapshot") is not None:
+        deployment_target.image_snapshot = data.get("image_snapshot")
+    if data.get("health_result") is not None:
+        deployment_target.health_result = data.get("health_result")
     deployment_target.finished_at = now
     deployment_target.lease_expires_at = None
 
@@ -524,11 +535,19 @@ async def finish_task(
     elif deployment.deploy_mode == "rolling" and status_value == "failed":
         _advance_rolling_deployment(db, deployment.id)
 
-    deployment.commit_hash = data.get("commit_hash") or deployment.commit_hash
+    deployment.commit_hash = data.get("commit_hash") or data.get("target_commit_hash") or deployment.commit_hash
+    if data.get("previous_commit_hash"):
+        deployment.previous_commit_hash = data.get("previous_commit_hash")
+    if data.get("image_snapshot") is not None:
+        deployment.image_snapshot = data.get("image_snapshot")
+    if data.get("health_result") is not None:
+        deployment.health_result = data.get("health_result")
     if data.get("error_code"):
         deployment.error_code = data.get("error_code")
     if data.get("error_message"):
         deployment.log_excerpt = (deployment.log_excerpt or "") + "\nERROR: " + data.get("error_message")[:1000]
+    if data.get("failure_phase"):
+        deployment.failure_phase = str(data.get("failure_phase"))[:32]
 
     db.flush()
 
@@ -699,10 +718,11 @@ async def sync_flags(
     db: Session = Depends(get_db),
     current_agent: dict = Depends(get_current_agent),
 ):
-    _, _, _, _ = _import_db_models()
+    _, Project, _, _, _, _ = _import_db_models()
     from shipsmith_db import FeatureFlag
 
     project_id = current_agent["project_id"]
+    project = db.query(Project).filter(Project.id == project_id).first()
 
     flags = (
         db.query(FeatureFlag)
@@ -720,6 +740,7 @@ async def sync_flags(
             "version": current_version,
             "flags": None,
             "changed": False,
+            "flags_file_path": project.flags_file_path if project else None,
         }
 
     flags_dict = {f.key: f.enabled for f in flags}
@@ -728,6 +749,7 @@ async def sync_flags(
         "version": max_version,
         "flags": flags_dict,
         "changed": True,
+        "flags_file_path": project.flags_file_path if project else None,
     }
 
 
