@@ -8,6 +8,8 @@ __pycache__/
 venv/
 node_modules/
 .next/
+**/node_modules/
+**/.next/
 .venv/
 *.egg-info/
 dist/
