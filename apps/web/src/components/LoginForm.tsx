@@ -7,7 +7,7 @@ import { api, setToken, getToken } from '@/lib/api';
 export default function LoginForm() {
   const router = useRouter();
   const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

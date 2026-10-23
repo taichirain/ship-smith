@@ -26,7 +26,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   function handleLogout() {
     clearToken();
-    router.push('/');
+    window.location.replace('/');
   }
 
   if (loading) {

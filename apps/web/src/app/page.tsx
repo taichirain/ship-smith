@@ -18,6 +18,7 @@ import {
   Flag,
   Undo2,
   Sparkles,
+  ChevronDown,
 } from 'lucide-react';
 import LoginForm from '@/components/LoginForm';
 import AppLayout from '@/components/AppLayout';
@@ -72,6 +73,8 @@ const EVENT_LABELS: Record<EventCategory, string> = {
   flag_audit: 'Flag Change',
   webhook: 'Webhook',
 };
+
+const DASHBOARD_PREVIEW_COUNT = 3;
 
 function formatRelativeTime(dateStr: string | null): string {
   if (!dateStr) return 'N/A';
@@ -232,6 +235,8 @@ function AnomalyProjects({ projects }: { projects: AnomalyProject[] }) {
 }
 
 function RecentChanges({ changes }: { changes: ChangeEvent[] }) {
+  const [expanded, setExpanded] = useState(false);
+
   if (changes.length === 0) {
     return (
       <div className="card p-8 text-center">
@@ -241,11 +246,17 @@ function RecentChanges({ changes }: { changes: ChangeEvent[] }) {
     );
   }
 
-  const displayChanges = changes.slice(0, 20);
+  const displayChanges = expanded ? changes : changes.slice(0, DASHBOARD_PREVIEW_COUNT);
 
   return (
-    <div className="space-y-1">
-      {displayChanges.map((change, idx) => (
+    <div>
+      <div
+        className={expanded ? 'max-h-[28rem] overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500' : ''}
+        role={expanded ? 'region' : undefined}
+        aria-label={expanded ? 'Recent changes' : undefined}
+        tabIndex={expanded ? 0 : undefined}
+      >
+        {displayChanges.map((change, idx) => (
         <div
           key={idx}
           className="flex items-start gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors"
@@ -307,7 +318,24 @@ function RecentChanges({ changes }: { changes: ChangeEvent[] }) {
             )}
           </div>
         </div>
-      ))}
+        ))}
+      </div>
+      {changes.length > DASHBOARD_PREVIEW_COUNT && (
+        <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-3 py-3">
+          <span className="text-xs text-gray-500">
+            Showing {displayChanges.length} of {changes.length} recent changes
+          </span>
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
+            className="inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700"
+          >
+            {expanded ? 'Show less' : 'View more'}
+            <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -355,6 +383,7 @@ function RecentAlerts({ alerts, counts, onAcknowledge, onResolve }: {
   onResolve: (alertId: number) => Promise<void>;
 }) {
   const [statusFilter, setStatusFilter] = useState<AlertStatus | null>('open');
+  const [expanded, setExpanded] = useState(false);
   const [acknowledgeLoading, setAcknowledgeLoading] = useState<number | null>(null);
   const [resolveLoading, setResolveLoading] = useState<number | null>(null);
 
@@ -362,6 +391,7 @@ function RecentAlerts({ alerts, counts, onAcknowledge, onResolve }: {
     if (!statusFilter) return true;
     return alert.status === statusFilter;
   });
+  const displayAlerts = expanded ? filteredAlerts : filteredAlerts.slice(0, DASHBOARD_PREVIEW_COUNT);
 
   const totalActive = counts.open + counts.acknowledged;
 
@@ -413,7 +443,11 @@ function RecentAlerts({ alerts, counts, onAcknowledge, onResolve }: {
           {(['open', 'acknowledged', 'resolved', null] as const).map(status => (
             <button
               key={status || 'all'}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => {
+                setStatusFilter(status);
+                setExpanded(false);
+              }}
+              aria-pressed={statusFilter === status}
               className={`px-2 py-1 text-xs rounded-md transition-colors ${
                 statusFilter === status
                   ? 'bg-primary-100 text-primary-700 font-medium'
@@ -446,8 +480,13 @@ function RecentAlerts({ alerts, counts, onAcknowledge, onResolve }: {
           <p className="text-gray-500">No alerts with this status.</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filteredAlerts.slice(0, 20).map(alert => {
+        <div
+          className={expanded ? 'max-h-[28rem] space-y-2 overflow-y-auto overscroll-contain pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500' : 'space-y-2'}
+          role={expanded ? 'region' : undefined}
+          aria-label={expanded ? 'Recent alerts' : undefined}
+          tabIndex={expanded ? 0 : undefined}
+        >
+          {displayAlerts.map(alert => {
             const typeConfig = ALERT_TYPE_LABELS[alert.alert_type];
             const statusConfig = ALERT_STATUS_LABELS[alert.status];
 
@@ -545,6 +584,23 @@ function RecentAlerts({ alerts, counts, onAcknowledge, onResolve }: {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {filteredAlerts.length > DASHBOARD_PREVIEW_COUNT && (
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-200 pt-3">
+          <span className="text-xs text-gray-500">
+            Showing {displayAlerts.length} of {filteredAlerts.length} recent alerts
+          </span>
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
+            className="inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700"
+          >
+            {expanded ? 'Show less' : 'View more'}
+            <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
         </div>
       )}
     </div>
