@@ -347,7 +347,7 @@ class Agent:
                 log_collector.info("health_check", "Running health check...")
 
                 if healthcheck_url:
-                    health_result = self.health_checker.check_http_health(
+                    health_result = self.health_checker.wait_http_health(
                         healthcheck_url,
                         timeout=healthcheck_timeout,
                         expected_status=healthcheck_expected_status,

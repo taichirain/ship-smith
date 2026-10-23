@@ -1,6 +1,7 @@
 import threading
 from types import SimpleNamespace
 
+from shipsmith_agent.health_check import HealthChecker
 from shipsmith_agent.main import Agent
 
 
@@ -88,3 +89,34 @@ def test_refresh_project_config():
     agent._refresh_project_config()
 
     assert agent._project_config["healthcheck_expected_status"] == 204
+
+
+def test_deployment_health_waits_for_service_start(monkeypatch):
+    checker = HealthChecker()
+    attempts = []
+
+    def check(url, timeout, expected_status):
+        attempts.append((url, expected_status))
+        if len(attempts) == 1:
+            return {"status": "unhealthy", "error": "connection refused"}
+        return {"status": "healthy", "http_status": expected_status}
+
+    monkeypatch.setattr(checker, "check_http_health", check)
+
+    result = checker.wait_http_health("http://stage/ready", timeout=3, expected_status=204, interval=0)
+
+    assert result == {"status": "healthy", "http_status": 204}
+    assert attempts == [("http://stage/ready", 204), ("http://stage/ready", 204)]
+
+
+def test_deployment_health_rejects_service_after_deadline(monkeypatch):
+    checker = HealthChecker()
+    monkeypatch.setattr(
+        checker,
+        "check_http_health",
+        lambda url, timeout, expected_status: {"status": "unhealthy", "http_status": 503},
+    )
+
+    result = checker.wait_http_health("http://stage/ready", timeout=0, interval=0)
+
+    assert result == {"status": "unhealthy", "http_status": 503}

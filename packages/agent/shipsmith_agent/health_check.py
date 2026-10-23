@@ -112,6 +112,29 @@ class HealthChecker:
                 "error": str(e),
             }
 
+    def wait_http_health(
+        self,
+        url: str,
+        timeout: int = 10,
+        expected_status: int = 200,
+        interval: float = 1.0,
+    ) -> Dict[str, Any]:
+        """Wait for a newly started service to become ready within one deadline."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = max(0.1, deadline - time.monotonic())
+            result = self.check_http_health(
+                url,
+                timeout=min(3.0, remaining),
+                expected_status=expected_status,
+            )
+            if result.get("status") == "healthy":
+                return result
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return result
+            time.sleep(min(interval, remaining))
+
     def check_tcp_health(self, host: str, port: int, timeout: int = 10) -> Dict[str, Any]:
         import socket
 
