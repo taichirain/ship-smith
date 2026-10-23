@@ -13,13 +13,17 @@ Base = declarative_base()
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")
     if url:
+        # The container ships psycopg2-binary. SQLAlchemy 2.1 changed the
+        # default driver for the bare ``postgresql://`` scheme to psycopg 3.
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg2://", 1)
         return url
     user = os.environ.get("DB_USER", "postgres")
     password = os.environ.get("DB_PASSWORD", "postgres")
     host = os.environ.get("DB_HOST", "localhost")
     port = os.environ.get("DB_PORT", "5432")
     name = os.environ.get("DB_NAME", "shipsmith")
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}"
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{name}"
 
 
 _engine: Optional[Engine] = None
