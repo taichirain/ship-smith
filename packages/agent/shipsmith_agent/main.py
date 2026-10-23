@@ -142,15 +142,24 @@ class Agent:
             self._project_config_updated_at = time.time()
 
     def _collect_and_send_heartbeat(self):
+        config = self._project_config or {}
         system_metrics = self.health_checker.get_system_metrics()
-        containers = self.health_checker.get_container_statuses()
+        configured_workdir = config.get("deploy_workdir")
+        if configured_workdir and os.path.realpath(configured_workdir) != os.path.realpath(self.settings.workdir or ""):
+            logger.warning("Agent workdir differs from project configuration; skipping container snapshot")
+            containers = []
+        else:
+            containers = self.health_checker.get_container_statuses(
+                workdir=self.settings.workdir,
+                compose_file=config.get("compose_file"),
+                compose_profiles=config.get("compose_profiles"),
+            )
         runtime = self.health_checker.get_runtime_info()
 
         app_health: Dict[str, Any] = {"status": "unknown"}
         if self._task_running:
             app_health = {"status": "unknown", "reason": "deployment_in_progress"}
         else:
-            config = self._project_config or {}
             health_url = config.get("healthcheck_url")
             if health_url:
                 with self._health_lock:

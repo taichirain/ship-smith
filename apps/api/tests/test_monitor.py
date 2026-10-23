@@ -103,6 +103,9 @@ def test_agent_config_endpoint(client, test_session, test_project):
     assert data["healthcheck_url"] == test_project.healthcheck_url
     assert data["healthcheck_timeout_seconds"] == test_project.healthcheck_timeout_seconds
     assert data["healthcheck_expected_status"] == test_project.healthcheck_expected_status
+    assert data["deploy_workdir"] == test_project.deploy_workdir
+    assert data["compose_file"] == test_project.compose_file
+    assert data["compose_profiles"] == (test_project.compose_profiles or [])
 
 
 def test_heartbeat_resolves_stale_health_alert(client, test_session, test_project):

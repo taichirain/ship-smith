@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import platform
 import shutil
@@ -59,31 +60,80 @@ class HealthChecker:
             "disk_used_percent": round(disk.percent, 1),
         }
 
-    def get_container_statuses(self) -> list:
-        containers = []
-        try:
-            import subprocess
+    def get_container_statuses(
+        self,
+        workdir: Optional[str],
+        compose_file: Optional[str],
+        compose_profiles: Optional[list[str]] = None,
+    ) -> list:
+        """Return only containers managed by this project's Compose deployment."""
+        if not workdir or not compose_file:
+            return []
 
+        compose_path = os.path.join(workdir, compose_file)
+        if not os.path.isfile(compose_path):
+            return []
+        expected_compose_path = os.path.realpath(compose_path)
+
+        command = ["docker", "compose"]
+        for profile in compose_profiles or []:
+            command.extend(["--profile", profile])
+        command.extend(["-f", compose_file, "ps", "--all", "--orphans=false", "--format", "json"])
+
+        try:
             result = subprocess.run(
-                ["docker", "ps", "--format", "{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}"],
+                command,
+                cwd=workdir,
                 capture_output=True,
                 text=True,
+                timeout=15,
             )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split("\n"):
-                    if line:
-                        parts = line.split("\t")
-                        if len(parts) >= 2:
-                            containers.append({
-                                "service": parts[0],
-                                "status": parts[1],
-                                "image": parts[2] if len(parts) > 2 else None,
-                                "ports": parts[3].split(", ") if len(parts) > 3 and parts[3] else [],
-                            })
-        except Exception as e:
-            logger.warning(f"Failed to get container statuses: {e}")
+            if result.returncode != 0:
+                logger.warning("Failed to get project Compose containers: %s", result.stderr.strip())
+                return []
 
-        return containers
+            output = result.stdout.strip()
+            if not output:
+                return []
+            try:
+                rows = json.loads(output)
+            except json.JSONDecodeError:
+                # Compose versions may emit one JSON object per line.
+                rows = [json.loads(line) for line in output.splitlines() if line.strip()]
+            if isinstance(rows, dict):
+                rows = [rows]
+
+            containers = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                labels = row.get("Labels") or ""
+                if isinstance(labels, str) and "com.docker.compose.oneoff=true" in labels.lower():
+                    continue
+                config_label = None
+                if isinstance(labels, str):
+                    config_label = next((
+                        item.partition("=")[2]
+                        for item in labels.split(",")
+                        if item.startswith("com.docker.compose.project.config_files=")
+                    ), None)
+                elif isinstance(labels, dict):
+                    config_label = labels.get("com.docker.compose.project.config_files")
+                    if str(labels.get("com.docker.compose.oneoff", "")).lower() == "true":
+                        continue
+                if not config_label or os.path.realpath(config_label) != expected_compose_path:
+                    continue
+                ports = row.get("Ports") or ""
+                containers.append({
+                    "service": row.get("Name") or row.get("Names") or row.get("Service"),
+                    "status": row.get("State") or "unknown",
+                    "image": row.get("Image"),
+                    "ports": [port.strip() for port in ports.split(",") if port.strip()],
+                })
+            return containers
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError) as exc:
+            logger.warning("Failed to get project Compose containers: %s", exc)
+            return []
 
     def check_http_health(
         self,

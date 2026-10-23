@@ -90,6 +90,9 @@ async def get_agent_config(
     return {
         "project_id": project.id,
         "project_name": project.name,
+        "deploy_workdir": project.deploy_workdir,
+        "compose_file": project.compose_file,
+        "compose_profiles": project.compose_profiles or [],
         "healthcheck_url": project.healthcheck_url,
         "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds,
         "healthcheck_expected_status": project.healthcheck_expected_status,
