@@ -47,11 +47,29 @@ def _cleanup_expired_tasks(db: Session):
         .all()
     )
 
+    affected_deployments = set()
     for dt in expired_running:
         dt.status = "failed"
         dt.error_code = "agent_disconnected"
         dt.error_message = "Task lease expired. Agent may have crashed or lost connectivity."
         dt.finished_at = now
+        dt.lease_expires_at = None
+        affected_deployments.add(dt.deployment_id)
+
+    db.flush()
+    for deployment_id in affected_deployments:
+        _advance_rolling_deployment(db, deployment_id)
+        db.flush()
+        deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
+        if not deployment:
+            continue
+        deployment.status = _aggregate_deployment_status(db, deployment_id)
+        if deployment.status in {"failed", "rollback_failed"}:
+            deployment.error_code = "agent_disconnected"
+            deployment.failure_phase = deployment.failure_phase or "agent_lease"
+            deployment.finished_at = now
+            deployment.lease_expires_at = None
+            deployment.log_excerpt = (deployment.log_excerpt or "") + "\nERROR: Agent task lease expired."
 
     db.commit()
 
