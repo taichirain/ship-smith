@@ -928,6 +928,7 @@ export default function ProjectDetailPage() {
       build_timeout_seconds: project.build_timeout_seconds,
       pull_timeout_seconds: project.pull_timeout_seconds,
       build_no_cache: project.build_no_cache,
+      service_scope: project.service_scope,
     });
     setEditComposeProfilesText((project.compose_profiles || []).join(', '));
     setShowEditForm(true);
@@ -1642,6 +1643,18 @@ export default function ProjectDetailPage() {
                     </code>
                     <p className="text-xs text-gray-400">
                       构建与拉取超时；{project.build_no_cache ? '不使用' : '使用'} Docker 层缓存
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 text-xs font-medium">Service Scope</span>
+                      <span className="text-xs text-gray-400">(操作范围)</span>
+                    </div>
+                    <code className="font-mono text-sm">{project.service_scope}</code>
+                    <p className="text-xs text-gray-400">
+                      {project.service_scope === 'all'
+                        ? 'Stop/Start 作用于整份 Compose（含数据库）'
+                        : 'Stop/Start 只作用于应用服务，不影响数据库'}
                     </p>
                   </div>
                 </div>
@@ -3482,6 +3495,28 @@ flags_sync_interval_seconds: 30`}
                       />
                       <p className="text-xs text-gray-400 mt-1">
                         镜像拉取超时，默认 900 秒
+                      </p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="label flex items-center justify-between">
+                        <span>Service Scope</span>
+                        <span className="text-xs text-gray-400 font-normal">操作范围</span>
+                      </label>
+                      <select
+                        className="input"
+                        value={editFormData.service_scope || 'app'}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            service_scope: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="app">app（只作用于应用服务，不影响数据库）</option>
+                        <option value="all">all（整份 Compose，含数据库等基础设施）</option>
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Stop/Start 默认只操作应用服务；数据库等基础设施请选 all（谨慎）
                       </p>
                     </div>
                     <div className="md:col-span-2 flex items-center gap-2">

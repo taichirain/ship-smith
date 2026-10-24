@@ -60,6 +60,7 @@ class Project(Base):
     build_timeout_seconds = Column(Integer, nullable=False, default=1800)
     pull_timeout_seconds = Column(Integer, nullable=False, default=900)
     build_no_cache = Column(Boolean, nullable=False, default=False)
+    service_scope = Column(String(16), nullable=False, default="app")
     agent_id = Column(String(64), nullable=False)
     agent_token_hash = Column(String(256), nullable=False)
     webhook_secret = Column(String(256))

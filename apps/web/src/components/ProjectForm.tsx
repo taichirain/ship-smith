@@ -41,6 +41,7 @@ const FORM_DEFAULTS: Partial<FormData> = {
   build_timeout_seconds: 1800,
   pull_timeout_seconds: 900,
   build_no_cache: false,
+  service_scope: 'app',
 };
 
 function isFormEmpty(data: FormData): boolean {
@@ -81,6 +82,7 @@ interface FormData {
   build_timeout_seconds: number;
   pull_timeout_seconds: number;
   build_no_cache: boolean;
+  service_scope: string;
 }
 
 interface ProjectFormProps {
@@ -125,6 +127,7 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
     build_timeout_seconds: 1800,
     pull_timeout_seconds: 900,
     build_no_cache: false,
+    service_scope: 'app',
   });
 
   const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
@@ -392,6 +395,7 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
         build_timeout_seconds: formData.build_timeout_seconds,
         pull_timeout_seconds: formData.pull_timeout_seconds,
         build_no_cache: formData.build_no_cache,
+        service_scope: formData.service_scope,
       });
       clearDraft();
       onSuccess(project);
@@ -767,6 +771,23 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
                 />
                 <p className="text-xs text-gray-400 mt-1">
                   镜像拉取超时，默认 900 秒
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="label flex items-center justify-between">
+                  <span>Service Scope</span>
+                  <span className="text-xs text-gray-400 font-normal">操作范围</span>
+                </label>
+                <select
+                  className="input"
+                  value={formData.service_scope}
+                  onChange={(e) => updateField('service_scope', e.target.value)}
+                >
+                  <option value="app">app（只作用于应用服务，不影响数据库）</option>
+                  <option value="all">all（整份 Compose，含数据库等基础设施）</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Stop/Start 默认只操作应用服务；数据库等基础设施请选 all（谨慎）
                 </p>
               </div>
               <div className="md:col-span-2 flex items-center gap-2">

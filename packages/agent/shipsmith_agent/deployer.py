@@ -581,9 +581,16 @@ class Deployer:
         if code != 0:
             raise DeployError("docker_pull_failed", "docker compose pull failed")
 
-    def docker_compose_up(self, compose_file: str = "docker-compose.yml") -> None:
+    def docker_compose_up(
+        self,
+        compose_file: str = "docker-compose.yml",
+        services: Optional[List[str]] = None,
+    ) -> None:
+        cmd = [*self._compose_args(compose_file), "up", "-d"]
+        if services:
+            cmd.extend(services)
         code, _ = self._run_command(
-            [*self._compose_args(compose_file), "up", "-d"],
+            cmd,
             phase="docker_up",
         )
         if code != 0:
@@ -602,9 +609,16 @@ class Deployer:
         self._validate_marker(git_repo)
         self._assert_remote_matches(git_repo)
 
-    def docker_compose_stop(self, compose_file: str = "docker-compose.yml") -> None:
+    def docker_compose_stop(
+        self,
+        compose_file: str = "docker-compose.yml",
+        services: Optional[List[str]] = None,
+    ) -> None:
+        cmd = [*self._compose_args(compose_file), "stop"]
+        if services:
+            cmd.extend(services)
         code, _ = self._run_command(
-            [*self._compose_args(compose_file), "stop"],
+            cmd,
             phase="service_stop",
         )
         if code != 0:

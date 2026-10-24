@@ -179,6 +179,7 @@ async def poll_task(
             "build_timeout_seconds": project.build_timeout_seconds if project else 1800,
             "pull_timeout_seconds": project.pull_timeout_seconds if project else 900,
             "build_no_cache": project.build_no_cache if project else False,
+            "service_scope": project.service_scope if project else "app",
             "pre_deploy_command": project.pre_deploy_command if project else None,
             "post_deploy_command": project.post_deploy_command if project else None,
             "created_at": deployment.queued_at.isoformat() if deployment.queued_at else None,

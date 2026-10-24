@@ -170,6 +170,15 @@ Agent 在 Core 不可达时会把部署结果和日志写入 `~/.local/state/shi
 
 Stop/Start 需要项目当前没有进行中的部署或其他操作；有正在执行的任务时会返回 409。
 
+## 操作范围与数据库保护
+
+Stop/Start 默认只作用于项目的**应用服务**（`compose_service`），不会碰同一份 Compose 里的数据库等基础设施：
+
+- `service_scope: "app"`（默认）→ `docker compose stop <app>` / `up -d <app>`，数据库不受影响。
+- `service_scope: "all"` → 作用于整份 Compose（含数据库），谨慎使用。
+
+**部署（Deploy）仍是整份 `up -d`**：首次部署需要把数据库等服务也拉起来。它是声明式的，只重建配置变化的服务。为避免 `compose-pull` 因镜像 tag 漂移重建数据库，**基础设施镜像请锁定 tag**（如 `postgres:16.4-alpine`，不要用 `postgres:16-alpine`）。
+
 ## 目录结构
 
 ```

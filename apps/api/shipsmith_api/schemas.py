@@ -47,6 +47,7 @@ class ProjectBase(BaseModel):
     build_timeout_seconds: int = Field(default=1800, ge=60, le=10800)
     pull_timeout_seconds: int = Field(default=900, ge=60, le=7200)
     build_no_cache: bool = False
+    service_scope: str = Field(default="app", max_length=16)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
     troubleshooting_hint: Optional[str] = None
@@ -85,6 +86,13 @@ class ProjectCreate(ProjectBase):
     def migration_command_must_not_be_blank(cls, value: Optional[str]) -> Optional[str]:
         if value is not None and not value.strip():
             return None
+        return value
+
+    @field_validator("service_scope")
+    @classmethod
+    def service_scope_must_be_valid(cls, value: str) -> str:
+        if value not in {"app", "all"}:
+            raise ValueError("service_scope must be 'app' or 'all'")
         return value
 
     @field_validator("compose_profiles")
@@ -126,6 +134,7 @@ class ProjectUpdate(BaseModel):
     build_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=10800)
     pull_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=7200)
     build_no_cache: Optional[bool] = None
+    service_scope: Optional[str] = Field(default=None, max_length=16)
     webhook_secret: Optional[str] = Field(default=None, max_length=256)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
@@ -165,6 +174,13 @@ class ProjectUpdate(BaseModel):
     def optional_migration_command_must_not_be_blank(cls, value: Optional[str]) -> Optional[str]:
         if value is not None and not value.strip():
             return None
+        return value
+
+    @field_validator("service_scope")
+    @classmethod
+    def optional_service_scope_must_be_valid(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in {"app", "all"}:
+            raise ValueError("service_scope must be 'app' or 'all'")
         return value
 
     @field_validator("compose_profiles")

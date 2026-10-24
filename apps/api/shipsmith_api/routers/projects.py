@@ -298,6 +298,7 @@ def _build_project_summary(project, project_status) -> dict:
         "build_timeout_seconds": project.build_timeout_seconds,
         "pull_timeout_seconds": project.pull_timeout_seconds,
         "build_no_cache": project.build_no_cache,
+        "service_scope": project.service_scope,
         "runbook": {
             "notes": project.notes,
             "release_notes_hint": project.release_notes_hint,
@@ -370,6 +371,7 @@ async def create_project(
         build_timeout_seconds=data.build_timeout_seconds,
         pull_timeout_seconds=data.pull_timeout_seconds,
         build_no_cache=data.build_no_cache,
+        service_scope=data.service_scope,
         agent_id=agent_id,
         agent_token_hash=agent_token_hash,
         webhook_endpoint_id=_generate_webhook_endpoint_id(),
@@ -551,6 +553,7 @@ async def get_project(
         "build_timeout_seconds": project.build_timeout_seconds,
         "pull_timeout_seconds": project.pull_timeout_seconds,
         "build_no_cache": project.build_no_cache,
+        "service_scope": project.service_scope,
         "agent_id": project.agent_id,
         "webhook_endpoint_id": project.webhook_endpoint_id,
         "created_at": project.created_at,
@@ -600,6 +603,7 @@ async def update_project(
         "build_timeout_seconds": 1800,
         "pull_timeout_seconds": 900,
         "build_no_cache": False,
+        "service_scope": "app",
     }
 
     for field, value in update_data.items():

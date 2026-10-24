@@ -36,6 +36,7 @@ export interface Project {
   build_timeout_seconds: number;
   pull_timeout_seconds: number;
   build_no_cache: boolean;
+  service_scope: string;
   agent_id: string;
   agent_token?: string;
   webhook_endpoint_id?: string;
@@ -92,6 +93,7 @@ export interface ProjectUpdate {
   build_timeout_seconds?: number;
   pull_timeout_seconds?: number;
   build_no_cache?: boolean;
+  service_scope?: string;
   webhook_secret?: string;
   notes?: string | null;
   release_notes_hint?: string | null;

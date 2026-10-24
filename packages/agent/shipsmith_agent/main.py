@@ -264,20 +264,30 @@ class Agent:
         current_phase = "service_stop" if kind == "service_stop" else "service_start"
         compose_file = task.get("compose_file", "docker-compose.yml")
         healthcheck_url = task.get("healthcheck_url")
+        service_scope = task.get("service_scope", "app")
+        target_services: List[str] = []
+        if service_scope == "app":
+            target_services = [task.get("compose_service") or "app"]
 
         try:
             deployer.assert_managed_repo(task.get("git_repo"))
 
             if kind == "service_stop":
-                log_collector.info("service_stop", "Stopping services (containers and volumes are preserved)...")
-                deployer.docker_compose_stop(compose_file)
+                log_collector.info(
+                    "service_stop",
+                    f"Stopping services (scope={service_scope}, services={target_services or 'all'}); containers and volumes are preserved...",
+                )
+                deployer.docker_compose_stop(compose_file, services=target_services)
                 self._intentionally_stopped = True
                 self._collect_and_send_heartbeat()
                 self._finish_task(task_id=task_id, status="success")
                 return
 
-            log_collector.info("service_start", "Starting services...")
-            deployer.docker_compose_up(compose_file)
+            log_collector.info(
+                "service_start",
+                f"Starting services (scope={service_scope}, services={target_services or 'all'})...",
+            )
+            deployer.docker_compose_up(compose_file, services=target_services)
 
             health_result: Dict[str, Any] = {"status": "unknown"}
             if healthcheck_url:
