@@ -239,3 +239,91 @@ class TestProjects:
         assert data["system_summary"]["os_name"] == "Linux"
         assert data["commands"][0]["title"] == "更新代码"
         assert "README.md" in data["source_files"]
+
+
+class TestProjectListFilters:
+    """Filters backing the dashboard drill-down cards."""
+
+    @staticmethod
+    def _create_project(session, name, health_status, agent_last_seen_at=None):
+        from datetime import datetime
+        from shipsmith_db import Project, ProjectStatus
+
+        project = Project(
+            name=name,
+            git_repo=f"https://github.com/test/{name}.git",
+            git_branch="main",
+            git_credential_type="none",
+            deploy_workdir=f"/opt/{name}",
+            compose_file="docker-compose.yml",
+            compose_service="app",
+            deploy_strategy="compose-build",
+            healthcheck_url=None,
+            healthcheck_timeout_seconds=10,
+            flags_file_path=f"/opt/{name}/flags.json",
+            agent_id=f"agent-{name}",
+            agent_token_hash="test-hash",
+            webhook_endpoint_id=f"wh-{name}",
+        )
+        session.add(project)
+        session.flush()
+        if health_status is not None:
+            session.add(
+                ProjectStatus(
+                    project_id=project.id,
+                    health_status=health_status,
+                    agent_last_seen_at=agent_last_seen_at or datetime.utcnow(),
+                )
+            )
+        session.commit()
+        return project
+
+    def test_unknown_filter_includes_projects_without_status(
+        self, client: TestClient, auth_headers, test_session
+    ):
+        self._create_project(test_session, "never-reported", None)
+
+        response = client.get("/api/v1/projects?health_status=unknown", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert {p["name"] for p in response.json()} == {"never-reported"}
+
+    def test_offline_filter_uses_heartbeat_age(self, client: TestClient, auth_headers, test_session):
+        from datetime import datetime, timedelta
+
+        self._create_project(test_session, "just-recovered", "healthy", datetime.utcnow())
+        self._create_project(
+            test_session, "silent", "healthy", datetime.utcnow() - timedelta(days=1)
+        )
+        self._create_project(test_session, "never-reached-out", None)
+
+        response = client.get("/api/v1/projects?health_status=offline", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert {p["name"] for p in response.json()} == {"silent", "never-reached-out"}
+
+    def test_stopped_filter_matches_intentional_stops(
+        self, client: TestClient, auth_headers, test_session
+    ):
+        self._create_project(test_session, "parked", "stopped")
+        self._create_project(test_session, "serving", "healthy")
+
+        response = client.get("/api/v1/projects?health_status=stopped", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert {p["name"] for p in response.json()} == {"parked"}
+
+    def test_update_project_before_app_services_backfill(
+        self, client: TestClient, auth_headers, test_session
+    ):
+        """Rows created before app_services existed can still be edited."""
+        project = self._create_project(test_session, "legacy-row", "unknown")
+
+        response = client.patch(
+            f"/api/v1/projects/{project.id}",
+            headers=auth_headers,
+            json={"name": "legacy-row-renamed"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["name"] == "legacy-row-renamed"

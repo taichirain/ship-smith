@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..deps import get_db, get_current_user
 from .. import __version__ as API_VERSION
+from ..agent_health import is_agent_offline
 from ..config import get_settings
 from ..llm_client import LLMClient
 from ..security import encrypt_secret, decrypt_secret
@@ -410,7 +411,13 @@ async def create_project(
 
 @router.get("", response_model=List[ProjectListResponse])
 async def list_projects(
-    health_status: Optional[str] = Query(default=None, description="Filter by health status"),
+    health_status: Optional[str] = Query(
+        default=None,
+        description=(
+            "Filter by health status. Also accepts 'offline' for projects whose "
+            "Agent heartbeat is missing or stale."
+        ),
+    ),
     environment: Optional[str] = Query(default=None, description="Filter by environment: production, staging, development, testing, other"),
     q: Optional[str] = Query(default=None, description="Search query for name, git_repo"),
     sort_by: Optional[str] = Query(
@@ -437,12 +444,26 @@ async def list_projects(
     if environment:
         query = query.filter(Project.environment == environment)
 
-    if health_status:
-        query = query.join(ProjectStatus, Project.id == ProjectStatus.project_id).filter(
-            ProjectStatus.health_status == health_status
-        )
+    # "offline" is an Agent-liveness view rather than a stored health status:
+    # it overlaps with every status value, so it is resolved after loading.
+    offline_only = health_status in ("offline", "agent_offline")
+    if health_status and not offline_only:
+        if health_status == "unknown":
+            # Projects that never reported a heartbeat have no ProjectStatus row.
+            query = query.outerjoin(ProjectStatus, Project.id == ProjectStatus.project_id).filter(
+                or_(ProjectStatus.health_status == "unknown", ProjectStatus.project_id.is_(None))
+            )
+        else:
+            query = query.join(ProjectStatus, Project.id == ProjectStatus.project_id).filter(
+                ProjectStatus.health_status == health_status
+            )
 
     projects = query.all()
+    if offline_only:
+        projects = [
+            p for p in projects
+            if is_agent_offline(p.status.agent_last_seen_at if p.status else None)
+        ]
 
     last_deployment_map = {}
     if projects:
@@ -514,7 +535,7 @@ async def list_projects(
         elif sort_by == "agent_last_seen_at":
             return item["agent_last_seen_at"] or datetime.min
         elif sort_by == "health_status_priority":
-            priority = {"unhealthy": 0, "degraded": 1, "unknown": 2, "healthy": 3}
+            priority = {"unhealthy": 0, "degraded": 1, "unknown": 2, "healthy": 3, "stopped": 4}
             return priority.get(item["health_status"], 99)
         else:
             return item["created_at"]
@@ -602,8 +623,13 @@ async def update_project(
 
     next_scope = update_data.get("service_scope", project.service_scope)
     next_primary = update_data.get("compose_service", project.compose_service)
-    next_services = update_data.get("app_services", project.app_services)
-    if next_scope == "app" and (not next_services or next_primary not in next_services):
+    if "app_services" in update_data:
+        next_services = update_data["app_services"] or []
+    else:
+        # Rows that predate app_services fall back to the primary service, which
+        # is exactly what app scope means; unrelated edits must not fail on it.
+        next_services = project.app_services or [next_primary]
+    if next_scope == "app" and next_primary not in next_services:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="app_services must include compose_service in app scope",

@@ -83,6 +83,7 @@ def test_project(test_session: Session):
         deploy_workdir="/opt/test",
         compose_file="docker-compose.yml",
         compose_service="app",
+        app_services=["app"],
         deploy_strategy="compose-build",
         healthcheck_url="http://localhost:8080/health",
         healthcheck_timeout_seconds=10,

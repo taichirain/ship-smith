@@ -6,7 +6,7 @@ from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
 from ..deps import get_db, get_current_user
-from ..config import get_settings
+from ..agent_health import is_agent_offline
 from ..schemas import (
     DashboardSummaryResponse,
     DashboardSummary,
@@ -32,11 +32,7 @@ def _import_db_models():
 
 
 def _is_offline(agent_last_seen_at: datetime) -> bool:
-    if not agent_last_seen_at:
-        return True
-    now = datetime.utcnow()
-    threshold = timedelta(seconds=get_settings().agent_offline_threshold_seconds)
-    return (now - agent_last_seen_at) > threshold
+    return is_agent_offline(agent_last_seen_at)
 
 
 def _get_deployment_summary(db: Session, since: datetime) -> dict:
