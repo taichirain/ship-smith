@@ -74,6 +74,9 @@ const FORM_DEFAULTS: Partial<WizardFormData> = {
   migration_timeout_seconds: 600,
   migration_no_deps: true,
   compose_profiles: '',
+  build_timeout_seconds: 1800,
+  pull_timeout_seconds: 900,
+  build_no_cache: false,
 };
 
 function isFormEmpty(data: WizardFormData): boolean {
@@ -110,6 +113,9 @@ interface WizardFormData {
   migration_timeout_seconds: number;
   migration_no_deps: boolean;
   compose_profiles: string;
+  build_timeout_seconds: number;
+  pull_timeout_seconds: number;
+  build_no_cache: boolean;
 }
 
 interface ProjectWizardProps {
@@ -152,6 +158,9 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     migration_timeout_seconds: 600,
     migration_no_deps: true,
     compose_profiles: '',
+    build_timeout_seconds: 1800,
+    pull_timeout_seconds: 900,
+    build_no_cache: false,
   });
 
   const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
@@ -489,6 +498,9 @@ ${formData.healthcheck_url ? `health_check:
           .split(',')
           .map((item) => item.trim())
           .filter(Boolean),
+        build_timeout_seconds: formData.build_timeout_seconds,
+        pull_timeout_seconds: formData.pull_timeout_seconds,
+        build_no_cache: formData.build_no_cache,
       });
       clearDraft();
       onSuccess(project);
@@ -839,6 +851,52 @@ ${formData.healthcheck_url ? `health_check:
                 </div>
               </div>
             </div>
+
+            <div className="border-t border-gray-200 pt-4">
+              <h4 className="text-sm font-medium text-gray-900 mb-3">构建调优（可选）</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">构建超时（秒）</label>
+                  <input
+                    type="number"
+                    className="input"
+                    min="60"
+                    max="10800"
+                    value={formData.build_timeout_seconds}
+                    onChange={(e) => updateField('build_timeout_seconds', parseInt(e.target.value) || 1800)}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    依赖下载较慢时可调大，默认 1800 秒
+                  </p>
+                </div>
+                <div>
+                  <label className="label">拉取超时（秒）</label>
+                  <input
+                    type="number"
+                    className="input"
+                    min="60"
+                    max="7200"
+                    value={formData.pull_timeout_seconds}
+                    onChange={(e) => updateField('pull_timeout_seconds', parseInt(e.target.value) || 900)}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    镜像拉取超时，默认 900 秒
+                  </p>
+                </div>
+                <div className="md:col-span-2 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="wizard-build-no-cache"
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600"
+                    checked={formData.build_no_cache}
+                    onChange={(e) => updateField('build_no_cache', e.target.checked)}
+                  />
+                  <label htmlFor="wizard-build-no-cache" className="text-sm text-gray-700">
+                    Build without cache（--no-cache；默认使用 Docker 层缓存）
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
         );
 
@@ -1058,6 +1116,12 @@ ${formData.healthcheck_url ? `health_check:
                   <span className="text-gray-500">Compose Profiles：</span>
                   <span className="text-gray-900 font-medium">
                     {formData.compose_profiles || '未启用'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">构建超时：</span>
+                  <span className="text-gray-900 font-medium">
+                    {formData.build_timeout_seconds} 秒{formData.build_no_cache ? '（不使用缓存）' : ''}
                   </span>
                 </div>
               </div>

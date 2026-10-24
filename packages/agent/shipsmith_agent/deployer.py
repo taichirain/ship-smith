@@ -549,18 +549,32 @@ class Deployer:
         if code != 0:
             raise DeployError("compose_config_invalid", "docker compose config validation failed")
 
-    def docker_compose_build(self, compose_file: str = "docker-compose.yml") -> None:
+    def docker_compose_build(
+        self,
+        compose_file: str = "docker-compose.yml",
+        timeout: Optional[int] = None,
+        no_cache: bool = False,
+    ) -> None:
+        cmd = [*self._compose_args(compose_file), "build", "--progress", "plain"]
+        if no_cache:
+            cmd.append("--no-cache")
         code, _ = self._run_command(
-            [*self._compose_args(compose_file), "build", "--progress", "plain"],
+            cmd,
             phase="docker_build",
+            timeout=timeout,
         )
         if code != 0:
             raise DeployError("docker_build_failed", "docker compose build failed")
 
-    def docker_compose_pull(self, compose_file: str = "docker-compose.yml") -> None:
+    def docker_compose_pull(
+        self,
+        compose_file: str = "docker-compose.yml",
+        timeout: Optional[int] = None,
+    ) -> None:
         code, _ = self._run_command(
             [*self._compose_args(compose_file), "pull"],
             phase="docker_pull",
+            timeout=timeout,
         )
         if code != 0:
             raise DeployError("docker_pull_failed", "docker compose pull failed")
@@ -699,6 +713,9 @@ class Deployer:
         migration_command: Optional[str] = None,
         migration_timeout_seconds: int = 600,
         migration_no_deps: bool = True,
+        build_timeout_seconds: int = 1800,
+        pull_timeout_seconds: int = 900,
+        build_no_cache: bool = False,
     ) -> Dict[str, Any]:
         if project_id is not None:
             self.project_id = project_id
@@ -740,9 +757,16 @@ class Deployer:
             self.docker_compose_config(compose_file)
 
             if strategy == "compose-build":
-                self.docker_compose_build(compose_file)
+                self.docker_compose_build(
+                    compose_file,
+                    timeout=build_timeout_seconds,
+                    no_cache=build_no_cache,
+                )
             elif strategy == "compose-pull":
-                self.docker_compose_pull(compose_file)
+                self.docker_compose_pull(
+                    compose_file,
+                    timeout=pull_timeout_seconds,
+                )
             else:
                 raise DeployError(
                     "invalid_deploy_strategy",

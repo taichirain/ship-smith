@@ -44,6 +44,9 @@ class ProjectBase(BaseModel):
     migration_timeout_seconds: int = Field(default=600, ge=1, le=7200)
     migration_no_deps: bool = True
     compose_profiles: List[str] = Field(default_factory=list)
+    build_timeout_seconds: int = Field(default=1800, ge=60, le=10800)
+    pull_timeout_seconds: int = Field(default=900, ge=60, le=7200)
+    build_no_cache: bool = False
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
     troubleshooting_hint: Optional[str] = None
@@ -120,6 +123,9 @@ class ProjectUpdate(BaseModel):
     migration_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=7200)
     migration_no_deps: Optional[bool] = None
     compose_profiles: Optional[List[str]] = None
+    build_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=10800)
+    pull_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=7200)
+    build_no_cache: Optional[bool] = None
     webhook_secret: Optional[str] = Field(default=None, max_length=256)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None

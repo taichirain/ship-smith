@@ -886,6 +886,9 @@ export default function ProjectDetailPage() {
       migration_command: project.migration_command,
       migration_timeout_seconds: project.migration_timeout_seconds,
       migration_no_deps: project.migration_no_deps,
+      build_timeout_seconds: project.build_timeout_seconds,
+      pull_timeout_seconds: project.pull_timeout_seconds,
+      build_no_cache: project.build_no_cache,
     });
     setEditComposeProfilesText((project.compose_profiles || []).join(', '));
     setShowEditForm(true);
@@ -1563,6 +1566,18 @@ export default function ProjectDetailPage() {
                     </code>
                     <p className="text-xs text-gray-400">
                       部署时 docker compose 显式启用的 profile
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 text-xs font-medium">Build Tuning</span>
+                      <span className="text-xs text-gray-400">(构建调优)</span>
+                    </div>
+                    <code className="font-mono text-sm">
+                      build {project.build_timeout_seconds}s / pull {project.pull_timeout_seconds}s{project.build_no_cache ? ' / no-cache' : ''}
+                    </code>
+                    <p className="text-xs text-gray-400">
+                      构建与拉取超时；{project.build_no_cache ? '不使用' : '使用'} Docker 层缓存
                     </p>
                   </div>
                 </div>
@@ -3377,6 +3392,67 @@ flags_sync_interval_seconds: 30`}
                       <p className="text-xs text-gray-400 mt-1">
                         compose-build: 在服务器上构建 | compose-pull: 直接拉取镜像
                       </p>
+                    </div>
+                    <div>
+                      <label className="label flex items-center justify-between">
+                        <span>Build Timeout (seconds)</span>
+                        <span className="text-xs text-gray-400 font-normal">构建超时</span>
+                      </label>
+                      <input
+                        type="number"
+                        className="input"
+                        min="60"
+                        max="10800"
+                        value={editFormData.build_timeout_seconds || 1800}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            build_timeout_seconds: Number(e.target.value),
+                          })
+                        }
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        依赖下载较慢时可调大，默认 1800 秒
+                      </p>
+                    </div>
+                    <div>
+                      <label className="label flex items-center justify-between">
+                        <span>Pull Timeout (seconds)</span>
+                        <span className="text-xs text-gray-400 font-normal">拉取超时</span>
+                      </label>
+                      <input
+                        type="number"
+                        className="input"
+                        min="60"
+                        max="7200"
+                        value={editFormData.pull_timeout_seconds || 900}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            pull_timeout_seconds: Number(e.target.value),
+                          })
+                        }
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        镜像拉取超时，默认 900 秒
+                      </p>
+                    </div>
+                    <div className="md:col-span-2 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="edit-build-no-cache"
+                        className="h-4 w-4 rounded border-gray-300 text-primary-600"
+                        checked={editFormData.build_no_cache ?? false}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            build_no_cache: e.target.checked,
+                          })
+                        }
+                      />
+                      <label htmlFor="edit-build-no-cache" className="text-sm text-gray-700">
+                        Build without cache（--no-cache；默认使用 Docker 层缓存）
+                      </label>
                     </div>
                   </div>
                 </div>

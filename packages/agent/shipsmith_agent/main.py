@@ -284,6 +284,9 @@ class Agent:
             migration_timeout = task.get("migration_timeout_seconds", 600)
             migration_no_deps = task.get("migration_no_deps", True)
             compose_profiles = task.get("compose_profiles") or []
+            build_timeout_seconds = task.get("build_timeout_seconds", 1800)
+            pull_timeout_seconds = task.get("pull_timeout_seconds", 900)
+            build_no_cache = task.get("build_no_cache", False)
 
             current_phase = "setup"
             actual_commit = None
@@ -345,6 +348,9 @@ class Agent:
                     migration_command=migration_command,
                     migration_timeout_seconds=migration_timeout,
                     migration_no_deps=migration_no_deps,
+                    build_timeout_seconds=build_timeout_seconds,
+                    pull_timeout_seconds=pull_timeout_seconds,
+                    build_no_cache=build_no_cache,
                 )
                 actual_commit = deploy_result.get("commit")
                 previous_commit = deploy_result.get("previous_commit")

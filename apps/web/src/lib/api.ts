@@ -33,6 +33,9 @@ export interface Project {
   migration_timeout_seconds: number;
   migration_no_deps: boolean;
   compose_profiles: string[];
+  build_timeout_seconds: number;
+  pull_timeout_seconds: number;
+  build_no_cache: boolean;
   agent_id: string;
   agent_token?: string;
   webhook_endpoint_id?: string;
@@ -86,6 +89,9 @@ export interface ProjectUpdate {
   migration_timeout_seconds?: number;
   migration_no_deps?: boolean;
   compose_profiles?: string[];
+  build_timeout_seconds?: number;
+  pull_timeout_seconds?: number;
+  build_no_cache?: boolean;
   webhook_secret?: string;
   notes?: string | null;
   release_notes_hint?: string | null;

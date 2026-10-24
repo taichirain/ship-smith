@@ -312,3 +312,50 @@ def test_health_check_expected_status(monkeypatch):
 
     assert result["status"] == "healthy"
     assert result["expected_status"] == 204
+
+
+def test_build_uses_custom_timeout_and_cache_flag(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    captured = {}
+
+    def fake_run_command(cmd, phase, **kwargs):
+        captured["cmd"] = cmd
+        captured["timeout"] = kwargs.get("timeout")
+        return 0, ""
+
+    deployer._run_command = fake_run_command
+    deployer.docker_compose_build("docker-compose.yml", timeout=7200, no_cache=True)
+
+    assert captured["timeout"] == 7200
+    assert "--no-cache" in captured["cmd"]
+
+
+def test_build_default_uses_cache(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    captured = {}
+
+    def fake_run_command(cmd, phase, **kwargs):
+        captured["cmd"] = cmd
+        return 0, ""
+
+    deployer._run_command = fake_run_command
+    deployer.docker_compose_build("docker-compose.yml")
+
+    assert "--no-cache" not in captured["cmd"]
+
+
+def test_pull_uses_custom_timeout(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    captured = {}
+
+    def fake_run_command(cmd, phase, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        return 0, ""
+
+    deployer._run_command = fake_run_command
+    deployer.docker_compose_pull("docker-compose.yml", timeout=3600)
+
+    assert captured["timeout"] == 3600

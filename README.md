@@ -116,6 +116,16 @@ pre_deploy（构建前，可选）
 
 Panel 的创建项目表单（高级表单和向导）已支持配置 `migration_service`、`migration_command`、`migration_timeout_seconds`、`migration_no_deps`、`compose_profiles` 和 `healthcheck_expected_status`。
 
+## 构建超时与缓存
+
+依赖下载较慢的环境（比如镜像源不稳定）常见“构建超时”。现在可以在项目配置中调整：
+
+- `build_timeout_seconds`：`docker compose build` 超时，默认 1800 秒，可调大到 10800
+- `pull_timeout_seconds`：`docker compose pull` 超时，默认 900 秒
+- `build_no_cache`：默认 `false`（使用 Docker 层缓存）；设为 `true` 时构建加 `--no-cache`
+
+说明：ShipSmith 的“通用缓存”默认就是 Docker 的层缓存——同一台机器上不改 Dockerfile 的部分会复用层，第二次构建通常很快。更细粒度的依赖缓存（如 pip/npm 的 cache mount）需要项目在自己的 Dockerfile 里使用 `RUN --mount=type=cache,...`，ShipSmith 无法替你注入。构建慢的根源通常是网络，生产上建议给构建环境配可用的代理或镜像源。
+
 注意：ShipSmith 只负责执行配置好的迁移命令，不决定 DDL 归属。Forge 的 `migration_command` 只应包含 Forge 自己的 schema 变更；行情表后续 DDL 由 alpha-market-data 维护，不要把它加进 Forge 的 Alembic。
 
 ## 健康检查与离线告警（Phase 3）

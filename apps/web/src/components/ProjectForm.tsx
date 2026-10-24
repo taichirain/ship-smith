@@ -38,6 +38,9 @@ const FORM_DEFAULTS: Partial<FormData> = {
   migration_timeout_seconds: 600,
   migration_no_deps: true,
   compose_profiles: '',
+  build_timeout_seconds: 1800,
+  pull_timeout_seconds: 900,
+  build_no_cache: false,
 };
 
 function isFormEmpty(data: FormData): boolean {
@@ -75,6 +78,9 @@ interface FormData {
   migration_timeout_seconds: number;
   migration_no_deps: boolean;
   compose_profiles: string;
+  build_timeout_seconds: number;
+  pull_timeout_seconds: number;
+  build_no_cache: boolean;
 }
 
 interface ProjectFormProps {
@@ -116,6 +122,9 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
     migration_timeout_seconds: 600,
     migration_no_deps: true,
     compose_profiles: '',
+    build_timeout_seconds: 1800,
+    pull_timeout_seconds: 900,
+    build_no_cache: false,
   });
 
   const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
@@ -380,6 +389,9 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
           .split(',')
           .map((item) => item.trim())
           .filter(Boolean),
+        build_timeout_seconds: formData.build_timeout_seconds,
+        pull_timeout_seconds: formData.pull_timeout_seconds,
+        build_no_cache: formData.build_no_cache,
       });
       clearDraft();
       onSuccess(project);
@@ -720,6 +732,54 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
                 <p className="text-xs text-gray-400 mt-1">
                   compose-build: 在服务器上构建 | compose-pull: 直接拉取镜像
                 </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Build Timeout (seconds)</span>
+                  <span className="text-xs text-gray-400 font-normal">构建超时</span>
+                </label>
+                <input
+                  type="number"
+                  className="input"
+                  min="60"
+                  max="10800"
+                  value={formData.build_timeout_seconds}
+                  onChange={(e) => updateField('build_timeout_seconds', parseInt(e.target.value) || 1800)}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  依赖下载较慢时可调大，默认 1800 秒
+                </p>
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Pull Timeout (seconds)</span>
+                  <span className="text-xs text-gray-400 font-normal">拉取超时</span>
+                </label>
+                <input
+                  type="number"
+                  className="input"
+                  min="60"
+                  max="7200"
+                  value={formData.pull_timeout_seconds}
+                  onChange={(e) => updateField('pull_timeout_seconds', parseInt(e.target.value) || 900)}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  镜像拉取超时，默认 900 秒
+                </p>
+              </div>
+              <div className="md:col-span-2 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="build-no-cache"
+                  className="h-4 w-4 rounded border-gray-300 text-primary-600"
+                  checked={formData.build_no_cache}
+                  onChange={(e) => updateField('build_no_cache', e.target.checked)}
+                />
+                <label htmlFor="build-no-cache" className="text-sm text-gray-700">
+                  Build without cache（--no-cache；默认使用 Docker 层缓存）
+                </label>
               </div>
             </div>
           </div>

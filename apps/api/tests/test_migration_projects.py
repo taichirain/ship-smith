@@ -22,6 +22,9 @@ def _payload(**overrides):
         "migration_timeout_seconds": 600,
         "migration_no_deps": True,
         "compose_profiles": ["data-sync"],
+        "build_timeout_seconds": 5400,
+        "pull_timeout_seconds": 1800,
+        "build_no_cache": False,
     }
     payload.update(overrides)
     return payload
@@ -35,6 +38,9 @@ def test_create_project_with_migration_and_profiles(client, auth_headers):
     assert data["migration_command"] == "alembic upgrade head"
     assert data["compose_profiles"] == ["data-sync"]
     assert data["healthcheck_expected_status"] == 200
+    assert data["build_timeout_seconds"] == 5400
+    assert data["pull_timeout_seconds"] == 1800
+    assert data["build_no_cache"] is False
 
 
 def test_migration_command_requires_service(client, auth_headers):
@@ -136,3 +142,39 @@ def test_update_migration_fields_accepts_null_defaults(client, auth_headers, tes
     assert data["migration_no_deps"] is True
     assert data["migration_timeout_seconds"] == 600
     assert data["healthcheck_expected_status"] == 200
+
+
+def test_agent_task_includes_build_tuning(client, test_session, test_project):
+    test_project.agent_token_hash = hashlib.sha256(b"agent-token").hexdigest()
+    test_project.build_timeout_seconds = 7200
+    test_project.pull_timeout_seconds = 2400
+    test_project.build_no_cache = True
+    test_session.commit()
+
+    deployment = Deployment(
+        project_id=test_project.id,
+        kind="deploy",
+        status="queued",
+        trigger_source="manual",
+        queued_at=datetime.utcnow(),
+    )
+    test_session.add(deployment)
+    test_session.flush()
+    test_session.add(
+        DeploymentTarget(
+            deployment_id=deployment.id,
+            agent_id=test_project.agent_id,
+            status="queued",
+        )
+    )
+    test_session.commit()
+
+    response = client.get(
+        "/api/v1/agents/tasks",
+        headers={"Authorization": "Bearer agent-token"},
+    )
+    assert response.status_code == 200
+    task = response.json()["task"]
+    assert task["build_timeout_seconds"] == 7200
+    assert task["pull_timeout_seconds"] == 2400
+    assert task["build_no_cache"] is True
