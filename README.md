@@ -158,6 +158,18 @@ Agent 会从 Core 拉取项目的健康检查配置，并在每次心跳时检�
 
 Agent 在 Core 不可达时会把部署结果和日志写入 `~/.local/state/shipsmith/outbox/<workdir-hash>/`，每 10 秒重试；Core 恢复后自动补发，不会把已完成的部署丢成失败。
 
+## 按项目停止/启动服务
+
+项目详情页提供 **Stop / Start** 按钮：
+
+- **Stop** 执行 `docker compose stop`，只停容器，**不删除容器和卷**，随时可 Start 恢复。
+- **Start** 执行 `docker compose up -d`，并重新跑健康检查。
+- 停止后项目进入“有意停止”状态：Agent 心跳上报 `stopped`，期间不产生健康告警；Agent 重启后状态不丢。
+- 成功的部署/回滚会自动清除“有意停止”状态。
+- 停止/启动都会记录为任务（含日志），在时间线里显示为 `operation_*` 事件。
+
+Stop/Start 需要项目当前没有进行中的部署或其他操作；有正在执行的任务时会返回 409。
+
 ## 目录结构
 
 ```

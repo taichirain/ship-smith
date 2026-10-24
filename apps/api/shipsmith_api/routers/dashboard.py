@@ -83,6 +83,7 @@ def _get_health_summary(db: Session) -> dict:
     degraded = 0
     unhealthy = 0
     offline = 0
+    stopped = 0
 
     for p in projects_with_status:
         health_status = p.status.health_status if p.status else "unknown"
@@ -93,6 +94,8 @@ def _get_health_summary(db: Session) -> dict:
             degraded += 1
         elif health_status == "unhealthy":
             unhealthy += 1
+        elif health_status == "stopped":
+            stopped += 1
         
         if not p.status or _is_offline(p.status.agent_last_seen_at):
             offline += 1
@@ -103,6 +106,7 @@ def _get_health_summary(db: Session) -> dict:
         "degraded": degraded,
         "unhealthy": unhealthy,
         "offline": offline,
+        "stopped": stopped,
     }
 
 
@@ -184,6 +188,10 @@ def _get_recent_changes(db: Session, limit: int = 30) -> List[ChangeEvent]:
             category = "rollback"
             event_type = f"rollback_{d.status}"
             title = f"Rollback {d.status}"
+        elif d.kind in ("service_stop", "service_start"):
+            category = "operation"
+            event_type = f"operation_{d.status}"
+            title = f"{'Stop' if d.kind == 'service_stop' else 'Start'} {d.status}"
         else:
             category = "deployment"
             event_type = f"deploy_{d.status}"
@@ -288,6 +296,7 @@ async def get_dashboard_summary(
             degraded_projects=health_summary["degraded"],
             unhealthy_projects=health_summary["unhealthy"],
             offline_projects=health_summary["offline"],
+            stopped_projects=health_summary["stopped"],
             last_24h_deployments_success=deploy_summary["success"],
             last_24h_deployments_failed=deploy_summary["failed"],
         ),

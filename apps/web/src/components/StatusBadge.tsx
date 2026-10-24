@@ -15,6 +15,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   unhealthy: { label: 'Health Check Failed', className: 'bg-red-100 text-red-700' },
   unknown: { label: 'Unknown', className: 'bg-gray-100 text-gray-700' },
   rolled_back: { label: 'Rolled Back', className: 'bg-purple-100 text-purple-700' },
+  stopped: { label: 'Stopped', className: 'bg-gray-200 text-gray-700' },
 };
 
 export default function StatusBadge({ status, small = false }: StatusBadgeProps) {

@@ -79,13 +79,16 @@ async def get_agent_config(
     db: Session = Depends(get_db),
     current_agent: dict = Depends(get_current_agent),
 ):
-    _, Project, _, _, _, _ = _import_db_models()
+    _, Project, _, ProjectStatus, _, _ = _import_db_models()
     project = db.query(Project).filter(Project.id == current_agent["project_id"]).first()
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    project_status = (
+        db.query(ProjectStatus).filter(ProjectStatus.project_id == project.id).first()
+    )
 
     return {
         "project_id": project.id,
@@ -96,6 +99,7 @@ async def get_agent_config(
         "healthcheck_url": project.healthcheck_url,
         "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds,
         "healthcheck_expected_status": project.healthcheck_expected_status,
+        "intentionally_stopped": bool(project_status.intentionally_stopped) if project_status else False,
     }
 
 
@@ -565,6 +569,21 @@ async def finish_task(
             project_status.current_commit_hash = deployment.commit_hash
             project_status.updated_at = now
 
+    if deployment.kind in ("service_stop", "service_start", "deploy", "rollback"):
+        stop_status = (
+            db.query(ProjectStatus)
+            .filter(ProjectStatus.project_id == project_id)
+            .first()
+        )
+        if stop_status:
+            if deployment.kind == "service_stop" and overall_status == "success":
+                stop_status.intentionally_stopped = True
+            elif deployment.kind == "service_start" and overall_status == "success":
+                stop_status.intentionally_stopped = False
+            elif deployment.kind in ("deploy", "rollback") and overall_status in ("success", "rolled_back"):
+                stop_status.intentionally_stopped = False
+            stop_status.updated_at = now
+
     db.commit()
     db.refresh(deployment)
     db.refresh(deployment_target)
@@ -654,7 +673,7 @@ async def agent_heartbeat(
         new_health_status = "unknown"
         if isinstance(app_health, dict):
             status_val = app_health.get("status", "unknown")
-            if status_val in ["healthy", "degraded", "unhealthy", "unknown"]:
+            if status_val in ["healthy", "degraded", "unhealthy", "unknown", "stopped"]:
                 new_health_status = status_val
                 project_status.health_status = status_val
         project_status.snapshot = data
@@ -700,7 +719,7 @@ async def agent_heartbeat(
     except Exception:
         pass
 
-    if project_status and new_health_status == "healthy":
+    if project_status and new_health_status in ("healthy", "stopped"):
         try:
             from ..alerts import resolve_alert_by_fingerprint
 

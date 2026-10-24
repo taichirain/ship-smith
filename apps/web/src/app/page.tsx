@@ -30,6 +30,7 @@ function SummaryCards({ summary }: { summary: DashboardSummaryResponse['summary'
     { label: 'Degraded', value: summary.degraded_projects, icon: AlertTriangle, color: 'text-yellow-600 bg-yellow-50' },
     { label: 'Unhealthy', value: summary.unhealthy_projects, icon: XCircle, color: 'text-red-600 bg-red-50' },
     { label: 'Agent Offline', value: summary.offline_projects, icon: Server, color: 'text-orange-600 bg-orange-50' },
+    { label: 'Stopped', value: summary.stopped_projects, icon: XCircle, color: 'text-gray-600 bg-gray-100' },
     { label: '24h Deployments', value: `${summary.last_24h_deployments_success}/${summary.last_24h_deployments_success + summary.last_24h_deployments_failed}`, icon: Sparkles, color: 'text-green-600 bg-green-50' },
   ];
   return <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">

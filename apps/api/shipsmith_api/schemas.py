@@ -238,6 +238,7 @@ class ProjectStatusDetailResponse(BaseModel):
     project_id: int
     agent_last_seen_at: Optional[datetime] = None
     health_status: str
+    intentionally_stopped: bool = False
     current_commit_hash: Optional[str] = None
     last_deployment_id: Optional[int] = None
     updated_at: datetime
@@ -427,6 +428,10 @@ TimelineEventType = Literal[
     "webhook_ignored",
     "agent_offline",
     "agent_recovered",
+    "operation_queued",
+    "operation_running",
+    "operation_success",
+    "operation_failed",
 ]
 
 
@@ -436,6 +441,7 @@ class DashboardSummary(BaseModel):
     degraded_projects: int
     unhealthy_projects: int
     offline_projects: int
+    stopped_projects: int
     last_24h_deployments_success: int
     last_24h_deployments_failed: int
 

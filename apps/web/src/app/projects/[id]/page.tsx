@@ -9,6 +9,9 @@ import {
   RotateCcw,
   Plus,
   Clock,
+  Power,
+  PowerOff,
+  Square,
   GitCommit,
   User,
   Flag,
@@ -112,6 +115,10 @@ const TIMELINE_FILTER_OPTIONS: { value: TimelineEventType | null; label: string;
   { value: 'webhook_accepted', label: 'Webhook Received', category: 'webhook' },
   { value: 'agent_offline', label: 'Agent Offline', category: 'agent' },
   { value: 'agent_recovered', label: 'Agent Recovered', category: 'agent' },
+  { value: 'operation_queued', label: 'Operation Queued', category: 'operation' },
+  { value: 'operation_running', label: 'Operation Running', category: 'operation' },
+  { value: 'operation_success', label: 'Operation Success', category: 'operation' },
+  { value: 'operation_failed', label: 'Operation Failed', category: 'operation' },
 ];
 
 function getTimelineEventIcon(type: TimelineEventType) {
@@ -130,6 +137,9 @@ function getTimelineEventIcon(type: TimelineEventType) {
   if (type.startsWith('agent_')) {
     return Activity;
   }
+  if (type.startsWith('operation_')) {
+    return Power;
+  }
   return Clock;
 }
 
@@ -139,6 +149,7 @@ function getTimelineEventStyle(type: TimelineEventType): { iconBg: string; iconC
   const importantTypes = new Set([
     'deployment_failed',
     'rollback_failed',
+    'operation_failed',
     'agent_offline',
     'flag_archived',
   ]);
@@ -155,6 +166,7 @@ function getTimelineEventStyle(type: TimelineEventType): { iconBg: string; iconC
   const successTypes = new Set([
     'deployment_success',
     'rollback_success',
+    'operation_success',
     'agent_recovered',
   ]);
   if (successTypes.has(typeStr)) {
@@ -811,6 +823,33 @@ export default function ProjectDetailPage() {
     return () => clearInterval(interval);
   }, [loadStatus, loadOnboarding]);
 
+  async function handleStopProject() {
+    if (!project) return;
+    if (!window.confirm('停止该项目的所有容器？容器和数据卷都会保留，不会被删除。')) return;
+    try {
+      setDeploying(true);
+      await api.stopProject(projectId);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to stop project');
+    } finally {
+      setDeploying(false);
+    }
+  }
+
+  async function handleStartProject() {
+    if (!project) return;
+    try {
+      setDeploying(true);
+      await api.startProject(projectId);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to start project');
+    } finally {
+      setDeploying(false);
+    }
+  }
+
   async function handleDeploy(mode?: 'all-at-once' | 'rolling') {
     try {
       setDeploying(true);
@@ -1182,7 +1221,32 @@ export default function ProjectDetailPage() {
                 <span className="font-mono">{project.git_repo}</span>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              {projectStatus?.intentionally_stopped ? (
+                <span className="inline-flex items-center rounded-full bg-gray-200 px-2.5 py-1 text-sm font-medium text-gray-700">
+                  <PowerOff className="w-4 h-4 mr-1" />
+                  已停止（有意）
+                </span>
+              ) : null}
+              {projectStatus?.intentionally_stopped ? (
+                <button
+                  onClick={handleStartProject}
+                  disabled={deploying}
+                  className="btn btn-secondary"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Start
+                </button>
+              ) : (
+                <button
+                  onClick={handleStopProject}
+                  disabled={deploying}
+                  className="btn btn-secondary"
+                >
+                  <Square className="w-4 h-4 mr-2" />
+                  Stop
+                </button>
+              )}
               <button
                 onClick={() => setShowDeployModal(true)}
                 disabled={deploying}

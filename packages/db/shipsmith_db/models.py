@@ -177,6 +177,7 @@ class ProjectStatus(Base):
     health_status = Column(String(16), nullable=False, default="unknown")
     current_commit_hash = Column(String(40))
     last_deployment_id = Column(Integer, ForeignKey("deployments.id", ondelete="SET NULL"))
+    intentionally_stopped = Column(Boolean, nullable=False, default=False)
     snapshot = Column(JSON, nullable=False, default=dict)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

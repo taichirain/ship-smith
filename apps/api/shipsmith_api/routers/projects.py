@@ -887,6 +887,7 @@ async def get_project_status(
         "project_id": project.status.project_id,
         "agent_last_seen_at": project.status.agent_last_seen_at,
         "health_status": project.status.health_status,
+        "intentionally_stopped": project.status.intentionally_stopped,
         "current_commit_hash": project.status.current_commit_hash,
         "last_deployment_id": project.status.last_deployment_id,
         "updated_at": project.status.updated_at,
@@ -1062,6 +1063,109 @@ async def deploy_project(
     db.commit()
     db.refresh(deployment)
 
+    return DeploymentResponse.model_validate(deployment)
+
+
+def _service_operation(
+    db: Session,
+    project_id: int,
+    kind: str,
+    current_user: dict,
+) -> Any:
+    Project, ProjectStatus, Deployment, _, ProjectTarget, DeploymentTarget, _ = _import_db_models()
+
+    project = _get_project_or_404(db, project_id)
+    project_status = (
+        db.query(ProjectStatus).filter(ProjectStatus.project_id == project_id).first()
+    )
+
+    existing_running = (
+        db.query(Deployment)
+        .filter(
+            Deployment.project_id == project_id,
+            Deployment.status.in_(["queued", "running"]),
+        )
+        .first()
+    )
+    if existing_running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another operation is already in progress for this project",
+        )
+
+    enabled_targets = (
+        db.query(ProjectTarget)
+        .filter(
+            ProjectTarget.project_id == project_id,
+            ProjectTarget.enabled == True,
+        )
+        .order_by(ProjectTarget.order_index.asc(), ProjectTarget.id.asc())
+        .all()
+    )
+    if not enabled_targets:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No enabled targets for this project",
+        )
+
+    if kind == "service_stop":
+        if project_status and project_status.intentionally_stopped:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Project is already intentionally stopped",
+            )
+    else:
+        if not project_status or not project_status.intentionally_stopped:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Project is not intentionally stopped",
+            )
+
+    deployment = Deployment(
+        project_id=project_id,
+        kind=kind,
+        status="queued",
+        deploy_mode="all-at-once",
+        trigger_source="manual",
+        triggered_by=current_user.get("username"),
+        queued_at=datetime.utcnow(),
+    )
+    db.add(deployment)
+    db.flush()
+
+    for target in enabled_targets:
+        deployment_target = DeploymentTarget(
+            deployment_id=deployment.id,
+            project_target_id=target.id,
+            agent_id=target.agent_id,
+            status="queued",
+        )
+        db.add(deployment_target)
+
+    db.commit()
+    db.refresh(deployment)
+    return deployment
+
+
+@router.post("/{project_id}/stop", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
+async def stop_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Stop the project's Compose services without deleting containers or volumes."""
+    deployment = _service_operation(db, project_id, "service_stop", current_user)
+    return DeploymentResponse.model_validate(deployment)
+
+
+@router.post("/{project_id}/start", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
+async def start_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Start a project that was intentionally stopped."""
+    deployment = _service_operation(db, project_id, "service_start", current_user)
     return DeploymentResponse.model_validate(deployment)
 
 
@@ -1462,6 +1566,9 @@ async def get_project_timeline(
         if d.kind == "rollback":
             event_type_val = f"rollback_{d.status}"
             title = f"Rollback #{d.id} {d.status}"
+        elif d.kind in ("service_stop", "service_start"):
+            event_type_val = f"operation_{d.status}"
+            title = f"{'Stop' if d.kind == 'service_stop' else 'Start'} #{d.id} {d.status}"
         else:
             event_type_val = f"deployment_{d.status}"
             title = f"Deploy #{d.id} {d.status}"
@@ -1687,6 +1794,7 @@ async def get_project_timeline(
         "config_updated",
         "webhook_accepted", "webhook_ignored",
         "agent_offline", "agent_recovered",
+        "operation_queued", "operation_running", "operation_success", "operation_failed",
     }
 
     filtered_events = [e for e in all_events if e["type"] in valid_event_types]

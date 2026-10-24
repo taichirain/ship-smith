@@ -62,6 +62,7 @@ def make_agent(task_running=False):
     }
     agent._task_running = task_running
     agent._health_lock = threading.Lock()
+    agent._intentionally_stopped = False
     return agent
 
 
@@ -223,3 +224,21 @@ def test_deployment_health_rejects_service_after_deadline(monkeypatch):
     result = checker.wait_http_health("http://stage/ready", timeout=0, interval=0)
 
     assert result == {"status": "unhealthy", "http_status": 503}
+
+
+def test_heartbeat_reports_stopped_when_intentionally_stopped():
+    agent = make_agent()
+    agent._intentionally_stopped = True
+
+    agent._collect_and_send_heartbeat()
+
+    assert agent.client.payload["app_health"]["status"] == "stopped"
+
+
+def test_heartbeat_reports_stopped_from_project_config():
+    agent = make_agent()
+    agent._project_config["intentionally_stopped"] = True
+
+    agent._collect_and_send_heartbeat()
+
+    assert agent.client.payload["app_health"]["status"] == "stopped"

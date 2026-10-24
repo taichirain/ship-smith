@@ -178,6 +178,7 @@ export interface ProjectStatus {
   };
   agent_version?: string | null;
   agent_version_outdated?: boolean | null;
+  intentionally_stopped?: boolean;
 }
 
 export interface GenerateDeployCommandsRequest {
@@ -207,7 +208,7 @@ export interface GenerateDeployCommandsResponse {
 }
 
 export type AnomalyType = 'agent_offline' | 'health_unhealthy' | 'health_degraded' | 'last_deploy_failed';
-export type EventCategory = 'deployment' | 'rollback' | 'flag_audit' | 'webhook';
+export type EventCategory = 'deployment' | 'rollback' | 'flag_audit' | 'webhook' | 'operation';
 
 export interface DashboardSummary {
   total_projects: number;
@@ -215,6 +216,7 @@ export interface DashboardSummary {
   degraded_projects: number;
   unhealthy_projects: number;
   offline_projects: number;
+  stopped_projects: number;
   last_24h_deployments_success: number;
   last_24h_deployments_failed: number;
 }
@@ -266,7 +268,11 @@ export type TimelineEventType =
   | 'webhook_accepted'
   | 'webhook_ignored'
   | 'agent_offline'
-  | 'agent_recovered';
+  | 'agent_recovered'
+  | 'operation_queued'
+  | 'operation_running'
+  | 'operation_success'
+  | 'operation_failed';
 
 export interface TimelineEvent {
   id: string;
@@ -889,6 +895,14 @@ export const api = {
 
   async rollbackToLastSuccess(projectId: number): Promise<Deployment> {
     return request<Deployment>('POST', `/v1/projects/${projectId}/rollback-to-last-success`);
+  },
+
+  async stopProject(projectId: number): Promise<Deployment> {
+    return request<Deployment>('POST', `/v1/projects/${projectId}/stop`);
+  },
+
+  async startProject(projectId: number): Promise<Deployment> {
+    return request<Deployment>('POST', `/v1/projects/${projectId}/start`);
   },
 
   async listDeployments(projectId: number, limit: number = 50): Promise<Deployment[]> {

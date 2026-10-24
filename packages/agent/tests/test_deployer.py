@@ -359,3 +359,50 @@ def test_pull_uses_custom_timeout(tmp_path):
     deployer.docker_compose_pull("docker-compose.yml", timeout=3600)
 
     assert captured["timeout"] == 3600
+
+
+def test_stop_uses_compose_stop(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    captured = {}
+
+    def fake_run_command(cmd, phase, **kwargs):
+        captured["cmd"] = cmd
+        captured["phase"] = phase
+        return 0, ""
+
+    deployer._run_command = fake_run_command
+    deployer.docker_compose_stop("docker-compose.yml")
+
+    assert captured["phase"] == "service_stop"
+    assert captured["cmd"][-1] == "stop"
+    assert "--no-cache" not in captured["cmd"]
+
+
+def test_assert_managed_repo_rejects_uninitialized_dir(tmp_path):
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    deployer = Deployer(str(workdir), Collector(), project_id=1)
+
+    with pytest.raises(DeployError) as exc:
+        deployer.assert_managed_repo("https://github.com/test/repo.git")
+
+    assert exc.value.error_code == "workdir_not_managed"
+
+
+def test_assert_managed_repo_accepts_owned_dir(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+
+    deployer.assert_managed_repo("https://github.com/test/repo.git")
+
+
+def test_assert_managed_repo_rejects_foreign_project(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    deployer.project_id = 99
+
+    with pytest.raises(DeployError) as exc:
+        deployer.assert_managed_repo("https://github.com/test/repo.git")
+
+    assert exc.value.error_code == "workdir_project_mismatch"

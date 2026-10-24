@@ -50,6 +50,7 @@ _ERROR_PHASE_MAP = {
     "pre_deploy_failed": "pre_deploy",
     "post_deploy_failed": "post_deploy",
     "migration_failed": "migration",
+    "docker_stop_failed": "service_stop",
     "migration_service_missing": "preflight",
     "migration_command_invalid": "migration",
     "deploy_locked": "preflight",
@@ -74,6 +75,7 @@ class Agent:
         self._project_config: Optional[Dict[str, Any]] = None
         self._project_config_updated_at = 0.0
         self._health_lock = threading.Lock()
+        self._intentionally_stopped = False
         try:
             self.outbox = Outbox(self.settings.workdir) if self.settings.workdir else None
         except Exception:
@@ -140,6 +142,7 @@ class Agent:
         if result:
             self._project_config = result
             self._project_config_updated_at = time.time()
+            self._intentionally_stopped = bool(result.get("intentionally_stopped"))
 
     def _collect_and_send_heartbeat(self):
         config = self._project_config or {}
@@ -159,6 +162,8 @@ class Agent:
         app_health: Dict[str, Any] = {"status": "unknown"}
         if self._task_running:
             app_health = {"status": "unknown", "reason": "deployment_in_progress"}
+        elif self._intentionally_stopped or config.get("intentionally_stopped"):
+            app_health = {"status": "stopped"}
         else:
             health_url = config.get("healthcheck_url")
             if health_url:
@@ -255,6 +260,69 @@ class Agent:
                 failure_phase="precheck",
             )
 
+    def _execute_service_operation(self, task_id, project_id, kind, task, deployer, log_collector):
+        current_phase = "service_stop" if kind == "service_stop" else "service_start"
+        compose_file = task.get("compose_file", "docker-compose.yml")
+        healthcheck_url = task.get("healthcheck_url")
+
+        try:
+            deployer.assert_managed_repo(task.get("git_repo"))
+
+            if kind == "service_stop":
+                log_collector.info("service_stop", "Stopping services (containers and volumes are preserved)...")
+                deployer.docker_compose_stop(compose_file)
+                self._intentionally_stopped = True
+                self._collect_and_send_heartbeat()
+                self._finish_task(task_id=task_id, status="success")
+                return
+
+            log_collector.info("service_start", "Starting services...")
+            deployer.docker_compose_up(compose_file)
+
+            health_result: Dict[str, Any] = {"status": "unknown"}
+            if healthcheck_url:
+                current_phase = "health_check"
+                log_collector.info("health_check", "Running health check...")
+                health_result = self.health_checker.wait_http_health(
+                    healthcheck_url,
+                    timeout=task.get("healthcheck_timeout_seconds", 10),
+                    expected_status=task.get("healthcheck_expected_status", 200),
+                )
+                if health_result.get("status") != "healthy":
+                    log_collector.error("health_check", f"Health check failed: {health_result}")
+                    self._finish_task(
+                        task_id=task_id,
+                        status="failed",
+                        error_code="health_check_failed",
+                        error_message=f"Health check failed: {health_result}",
+                        failure_phase="health_check",
+                        health_result=health_result,
+                    )
+                    return
+
+            self._intentionally_stopped = False
+            self._collect_and_send_heartbeat()
+            self._finish_task(task_id=task_id, status="success", health_result=health_result)
+
+        except DeployError as e:
+            logger.error(f"Task {task_id} failed: {e.message}")
+            self._finish_task(
+                task_id=task_id,
+                status="failed",
+                error_code=e.error_code,
+                error_message=e.message,
+                failure_phase=_failure_phase(e.error_code, current_phase),
+            )
+        except Exception as e:
+            logger.error(f"Task {task_id} failed with unexpected error: {e}")
+            self._finish_task(
+                task_id=task_id,
+                status="failed",
+                error_code="unknown_error",
+                error_message=str(e),
+                failure_phase=current_phase,
+            )
+
     def _execute_task(self, task: dict):
         task_id = task.get("id")
         project_id = task.get("project_id")
@@ -314,6 +382,17 @@ class Agent:
 
             if not self.client.start_task(task_id):
                 logger.error(f"Failed to start task {task_id}")
+                return
+
+            if kind in ("service_stop", "service_start"):
+                self._execute_service_operation(
+                    task_id=task_id,
+                    project_id=project_id,
+                    kind=kind,
+                    task=task,
+                    deployer=deployer,
+                    log_collector=log_collector,
+                )
                 return
 
             try:

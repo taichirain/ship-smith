@@ -37,6 +37,8 @@ DEFAULT_TIMEOUTS = {
     "docker_build": 1800,
     "docker_pull": 900,
     "docker_up": 300,
+    "service_stop": 300,
+    "service_start": 300,
     "migration": 600,
     "pre_deploy": 600,
     "post_deploy": 600,
@@ -586,6 +588,27 @@ class Deployer:
         )
         if code != 0:
             raise DeployError("docker_up_failed", "docker compose up failed")
+
+    def assert_managed_repo(self, git_repo: str) -> None:
+        """Validate ownership without cloning or touching the worktree."""
+        self._assert_workdir_is_safe()
+        if not self.project_id:
+            raise DeployError("project_id_missing", "Agent task did not include a project id")
+        if not (Path(self.workdir) / ".git").exists():
+            raise DeployError(
+                "workdir_not_managed",
+                f"Deploy workdir is not initialized by ShipSmith: {self.workdir}",
+            )
+        self._validate_marker(git_repo)
+        self._assert_remote_matches(git_repo)
+
+    def docker_compose_stop(self, compose_file: str = "docker-compose.yml") -> None:
+        code, _ = self._run_command(
+            [*self._compose_args(compose_file), "stop"],
+            phase="service_stop",
+        )
+        if code != 0:
+            raise DeployError("docker_stop_failed", "docker compose stop failed")
 
     def snapshot_runtime(self, compose_file: str = "docker-compose.yml") -> Dict[str, Any]:
         code, output = self._run_command(
