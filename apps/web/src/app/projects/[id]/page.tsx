@@ -11,7 +11,6 @@ import {
   Clock,
   GitCommit,
   User,
-  FileText,
   Flag,
   Settings,
   Key,
@@ -526,6 +525,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [showAllDeployments, setShowAllDeployments] = useState(false);
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2171,27 +2171,16 @@ flags_sync_interval_seconds: 30`}
                 <h2 className="text-lg font-semibold text-gray-900">
                   Deploy History
                 </h2>
-              </div>
-
-              {lastFailedDeployment && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                  <div className="flex items-center gap-2 text-red-800 text-sm font-medium mb-1">
-                    <AlertTriangle className="w-4 h-4" />
-                    Last deployment failed
-                  </div>
-                  <p className="text-xs text-red-600">
-                    Error: {lastFailedDeployment.error_code || 'unknown'}
-                    {lastFailedDeployment.failure_phase &&
-                      ` (${lastFailedDeployment.failure_phase})`}
-                  </p>
-                  <Link
-                    href={`/deployments/${lastFailedDeployment.id}`}
-                    className="text-xs text-red-700 underline mt-1 inline-block"
+                {deployments.length > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllDeployments((current) => !current)}
+                    className="text-sm text-blue-600 hover:text-blue-700"
                   >
-                    View details →
-                  </Link>
-                </div>
-              )}
+                    {showAllDeployments ? 'Show less' : `Show more (${deployments.length - 5})`}
+                  </button>
+                )}
+              </div>
 
               {deployments.length === 0 ? (
                 <div className="card p-8 text-center">
@@ -2199,15 +2188,15 @@ flags_sync_interval_seconds: 30`}
                   <p className="text-gray-600">No deployments yet.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {deployments.slice(0, 10).map((deployment) => (
+                <div className="card divide-y divide-gray-100 overflow-hidden">
+                  {(showAllDeployments ? deployments : deployments.slice(0, 5)).map((deployment) => (
                     <Link
                       key={deployment.id}
                       href={`/deployments/${deployment.id}`}
-                      className="card p-4 hover:border-primary-300 hover:shadow-sm transition-all block"
+                      className="block px-4 py-3 hover:bg-gray-50 transition-colors"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
                           <StatusBadge
                             status={deployment.status}
                             small
@@ -2223,7 +2212,7 @@ flags_sync_interval_seconds: 30`}
                           {formatDate(deployment.queued_at)}
                         </span>
                       </div>
-                      <div className="mt-2 flex items-center gap-4 text-xs text-gray-600">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
                         {deployment.commit_hash && (
                           <span className="flex items-center gap-1">
                             <GitCommit className="w-3 h-3" />
@@ -2234,12 +2223,6 @@ flags_sync_interval_seconds: 30`}
                           <span className="flex items-center gap-1">
                             <User className="w-3 h-3" />
                             {deployment.triggered_by}
-                          </span>
-                        )}
-                        {deployment.log_excerpt && (
-                          <span className="flex items-center gap-1">
-                            <FileText className="w-3 h-3" />
-                            Has logs
                           </span>
                         )}
                       </div>

@@ -306,7 +306,12 @@ export default function HealthTrendChart({
             {deploymentPositions.map((pos, i) => {
               const isSuccess = pos.marker.status === 'success' || pos.marker.status === 'rolled_back';
               return (
-                <g key={`deployment-${i}`}>
+                <a
+                  key={`deployment-${i}`}
+                  href={`/deployments/${pos.marker.deployment_id}`}
+                  aria-label={`Open ${pos.marker.kind === 'rollback' ? 'rollback' : 'deployment'} #${pos.marker.deployment_id}`}
+                  className="cursor-pointer"
+                >
                   <line
                     x1={pos.x}
                     y1={15}
@@ -330,7 +335,7 @@ export default function HealthTrendChart({
                       {parseApiTimestamp(pos.marker.timestamp).toLocaleString()}
                     </title>
                   </polygon>
-                </g>
+                </a>
               );
             })}
 
@@ -395,42 +400,6 @@ export default function HealthTrendChart({
           </div>
         </div>
 
-        {deploymentMarkers.length > 0 && (
-          <div className="mt-4 border-t pt-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">
-              Deployments in this period
-            </h3>
-            <div className="space-y-2">
-              {deploymentMarkers.map((marker) => (
-                <div
-                  key={marker.deployment_id}
-                  className="flex items-center justify-between text-sm bg-gray-50 rounded px-3 py-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        marker.status === 'success' || marker.status === 'rolled_back'
-                          ? 'bg-green-500'
-                          : 'bg-red-500'
-                      }`}
-                    />
-                    <span className="font-medium">
-                      {marker.kind === 'rollback' ? 'Rollback' : 'Deployment'} #{marker.deployment_id}
-                    </span>
-                    {marker.commit_hash && (
-                      <span className="text-gray-500 font-mono text-xs">
-                        ({marker.commit_hash.substring(0, 8)})
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-gray-500 text-xs">
-                    {parseApiTimestamp(marker.timestamp).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
