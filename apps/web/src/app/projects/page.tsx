@@ -62,6 +62,7 @@ const STATUS_TABS: { value: string | null; label: string }[] = [
   { value: 'degraded', label: 'Degraded' },
   { value: 'healthy', label: 'Healthy' },
   { value: 'offline', label: 'Agent Offline' },
+  { value: 'stopped', label: 'Stopped' },
   { value: 'unknown', label: 'Unknown' },
 ];
 
@@ -182,6 +183,46 @@ export default function ProjectsPage() {
   const [sortBy, setSortBy] = useState<SortOption>('created_at_desc');
   const [showSortDropdown, setShowSortDropdown] = useState(false);
 
+  // The dashboard summary cards deep-link here (e.g. ?health_status=offline),
+  // so the filters start from the URL and are mirrored back into it.
+  const [filtersReady, setFiltersReady] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const statusParam = params.get('health_status');
+    if (statusParam && STATUS_TABS.some(tab => tab.value === statusParam)) {
+      setStatusFilter(statusParam);
+    }
+    const environmentParam = params.get('environment');
+    if (environmentParam && ENVIRONMENT_OPTIONS.some(option => option.value === environmentParam)) {
+      setEnvironmentFilter(environmentParam);
+    }
+    const queryParam = params.get('q');
+    if (queryParam) setSearchQuery(queryParam);
+    const outdatedParam = params.get('agent_outdated');
+    if (outdatedParam === 'true') setAgentOutdatedFilter(true);
+    else if (outdatedParam === 'false') setAgentOutdatedFilter(false);
+    setFiltersReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('health_status', statusFilter);
+    if (environmentFilter) params.set('environment', environmentFilter);
+    if (searchQuery.trim()) params.set('q', searchQuery.trim());
+    if (agentOutdatedFilter !== null) params.set('agent_outdated', String(agentOutdatedFilter));
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }, [filtersReady, statusFilter, environmentFilter, searchQuery, agentOutdatedFilter]);
+
+  function clearFilters() {
+    setSearchQuery('');
+    setStatusFilter(null);
+    setEnvironmentFilter(null);
+    setAgentOutdatedFilter(null);
+  }
+
   const apiParams = useMemo(() => {
     const params: Record<string, string> = {};
     if (statusFilter) params.health_status = statusFilter;
@@ -224,8 +265,9 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
+    if (!filtersReady) return;
     loadProjects();
-  }, [apiParams]);
+  }, [apiParams, filtersReady]);
 
   function handleWizardSuccess(project: Project) {
     setShowWizard(false);
@@ -480,6 +522,12 @@ export default function ProjectsPage() {
               <div className="card p-12 text-center">
                 <FolderGit2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600">没有匹配的项目</p>
+                <button
+                  onClick={clearFilters}
+                  className="mt-4 text-sm font-medium text-primary-700 hover:underline"
+                >
+                  清除筛选条件
+                </button>
               </div>
             ) : (
               <div className="grid gap-4">

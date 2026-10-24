@@ -24,20 +24,22 @@ function relativeTime(value: string | null): string {
 }
 
 function SummaryCards({ summary }: { summary: DashboardSummaryResponse['summary'] }) {
+  // Every counter is a drill-down entry point: the project list understands
+  // these query params, so a click lands on exactly the matching projects.
   const cards = [
-    { label: 'Total Projects', value: summary.total_projects, icon: Package, color: 'text-blue-600 bg-blue-50' },
-    { label: 'Healthy', value: summary.healthy_projects, icon: CheckCircle, color: 'text-green-600 bg-green-50' },
-    { label: 'Degraded', value: summary.degraded_projects, icon: AlertTriangle, color: 'text-yellow-600 bg-yellow-50' },
-    { label: 'Unhealthy', value: summary.unhealthy_projects, icon: XCircle, color: 'text-red-600 bg-red-50' },
-    { label: 'Agent Offline', value: summary.offline_projects, icon: Server, color: 'text-orange-600 bg-orange-50' },
-    { label: 'Stopped', value: summary.stopped_projects, icon: XCircle, color: 'text-gray-600 bg-gray-100' },
-    { label: '24h Deployments', value: `${summary.last_24h_deployments_success}/${summary.last_24h_deployments_success + summary.last_24h_deployments_failed}`, icon: Sparkles, color: 'text-green-600 bg-green-50' },
+    { label: 'Total Projects', value: summary.total_projects, icon: Package, color: 'text-blue-600 bg-blue-50', href: '/projects' },
+    { label: 'Healthy', value: summary.healthy_projects, icon: CheckCircle, color: 'text-green-600 bg-green-50', href: '/projects?health_status=healthy' },
+    { label: 'Degraded', value: summary.degraded_projects, icon: AlertTriangle, color: 'text-yellow-600 bg-yellow-50', href: '/projects?health_status=degraded' },
+    { label: 'Unhealthy', value: summary.unhealthy_projects, icon: XCircle, color: 'text-red-600 bg-red-50', href: '/projects?health_status=unhealthy' },
+    { label: 'Agent Offline', value: summary.offline_projects, icon: Server, color: 'text-orange-600 bg-orange-50', href: '/projects?health_status=offline' },
+    { label: 'Stopped', value: summary.stopped_projects, icon: XCircle, color: 'text-gray-600 bg-gray-100', href: '/projects?health_status=stopped' },
+    { label: '24h Deployments', value: `${summary.last_24h_deployments_success}/${summary.last_24h_deployments_success + summary.last_24h_deployments_failed}`, icon: Sparkles, color: 'text-green-600 bg-green-50', href: '/activity/changes' },
   ];
   return <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-    {cards.map(({ label, value, icon: Icon, color }) => <div key={label} className="card flex items-center gap-3 p-4">
+    {cards.map(({ label, value, icon: Icon, color, href }) => <Link key={label} href={href} title={`View ${label.toLowerCase()}`} className="card flex items-center gap-3 p-4 transition hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
       <span className={`rounded-lg p-2 ${color}`}><Icon className="h-5 w-5" /></span>
       <div className="min-w-0"><p className="text-xs text-gray-500">{label}</p><p className="text-2xl font-semibold text-gray-900">{value}</p></div>
-    </div>)}
+    </Link>)}
   </div>;
 }
 
