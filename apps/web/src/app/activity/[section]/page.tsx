@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, GitBranch, RefreshCw } from 'luci
 import AppLayout from '@/components/AppLayout';
 import StatusBadge from '@/components/StatusBadge';
 import { api, Alert, AlertListResponse, AlertStatus, DashboardSummaryResponse } from '@/lib/api';
+import { parseApiTimestamp } from '@/lib/datetime';
 
 const PAGE_SIZE = 20;
 const sections = [
@@ -17,7 +18,7 @@ const sections = [
 type Section = typeof sections[number]['key'];
 
 function dateTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : 'N/A';
+  return value ? parseApiTimestamp(value).toLocaleString() : 'N/A';
 }
 
 export default function ActivityPage() {

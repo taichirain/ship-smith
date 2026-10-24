@@ -30,10 +30,11 @@ import AppLayout from '@/components/AppLayout';
 import StatusBadge from '@/components/StatusBadge';
 import DeploymentFailurePanel from '@/components/DeploymentFailurePanel';
 import { api, Deployment, DeploymentLog, DeploymentDetailWithTargets } from '@/lib/api';
+import { parseApiTimestamp } from '@/lib/datetime';
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleString();
+  return parseApiTimestamp(dateStr).toLocaleString();
 }
 
 const PHASE_LABELS: Record<string, string> = {

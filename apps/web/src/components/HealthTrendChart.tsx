@@ -2,11 +2,13 @@
 
 import { useMemo } from 'react';
 import { HealthHistoryRecord, DeploymentMarker, TimeRange } from '@/lib/api';
+import { parseApiTimestamp } from '@/lib/datetime';
 
 interface HealthTrendChartProps {
   records: HealthHistoryRecord[];
   deploymentMarkers: DeploymentMarker[];
   timeRange: TimeRange;
+  loading?: boolean;
   onTimeRangeChange: (range: TimeRange) => void;
 }
 
@@ -40,6 +42,7 @@ export default function HealthTrendChart({
   records,
   deploymentMarkers,
   timeRange,
+  loading = false,
   onTimeRangeChange,
 }: HealthTrendChartProps) {
   const chartData = useMemo(() => {
@@ -53,7 +56,7 @@ export default function HealthTrendChart({
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
-    const times = records.map((r) => new Date(r.timestamp).getTime());
+    const times = records.map((r) => parseApiTimestamp(r.timestamp).getTime());
     const minTime = Math.min(...times);
     const maxTime = Math.max(...times);
     const timeRangeMs = maxTime - minTime || 1;
@@ -64,7 +67,7 @@ export default function HealthTrendChart({
     const maxResponseTime = responseTimes.length > 0 ? Math.max(...responseTimes, 100) : 100;
 
     const points = records.map((record) => {
-      const time = new Date(record.timestamp).getTime();
+      const time = parseApiTimestamp(record.timestamp).getTime();
       const x = padding.left + ((time - minTime) / timeRangeMs) * chartWidth;
       const responseMs = record.response_ms ?? 0;
       const y =
@@ -83,7 +86,7 @@ export default function HealthTrendChart({
 
     const deploymentPositions = deploymentMarkers
       .map((marker) => {
-        const markerTime = new Date(marker.timestamp).getTime();
+        const markerTime = parseApiTimestamp(marker.timestamp).getTime();
         if (markerTime < minTime || markerTime > maxTime) {
           return null;
         }
@@ -111,7 +114,7 @@ export default function HealthTrendChart({
   }, [records, deploymentMarkers]);
 
   const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp);
+    const date = parseApiTimestamp(timestamp);
     if (timeRange === '24h') {
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
@@ -125,6 +128,7 @@ export default function HealthTrendChart({
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <span>📈</span>
             Health Trend
+            {loading && <span className="text-xs font-normal text-gray-500">Updating...</span>}
           </h2>
           <div className="flex gap-2">
             <button
@@ -171,6 +175,7 @@ export default function HealthTrendChart({
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
           <span>📈</span>
           Health Trend
+          {loading && <span className="text-xs font-normal text-gray-500">Updating...</span>}
         </h2>
         <div className="flex gap-2">
           <button
@@ -322,7 +327,7 @@ export default function HealthTrendChart({
                       {pos.marker.status}
                       {pos.marker.commit_hash ? ` (${pos.marker.commit_hash.substring(0, 8)})` : ''}
                       {' - '}
-                      {new Date(pos.marker.timestamp).toLocaleString()}
+                      {parseApiTimestamp(pos.marker.timestamp).toLocaleString()}
                     </title>
                   </polygon>
                 </g>
@@ -419,7 +424,7 @@ export default function HealthTrendChart({
                     )}
                   </div>
                   <span className="text-gray-500 text-xs">
-                    {new Date(marker.timestamp).toLocaleString()}
+                    {parseApiTimestamp(marker.timestamp).toLocaleString()}
                   </span>
                 </div>
               ))}

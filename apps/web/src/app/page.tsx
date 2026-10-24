@@ -8,18 +8,19 @@ import AppLayout from '@/components/AppLayout';
 import LoginForm from '@/components/LoginForm';
 import StatusBadge from '@/components/StatusBadge';
 import { api, getToken, DashboardSummaryResponse, AlertListResponse } from '@/lib/api';
+import { parseApiTimestamp } from '@/lib/datetime';
 
 const PREVIEW_COUNT = 3;
 
 function relativeTime(value: string | null): string {
   if (!value) return 'N/A';
-  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+  const minutes = Math.max(0, Math.floor((Date.now() - parseApiTimestamp(value).getTime()) / 60000));
   if (minutes < 1) return 'Just now';
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return days < 7 ? `${days}d ago` : new Date(value).toLocaleDateString();
+  return days < 7 ? `${days}d ago` : parseApiTimestamp(value).toLocaleDateString();
 }
 
 function SummaryCards({ summary }: { summary: DashboardSummaryResponse['summary'] }) {

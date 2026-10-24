@@ -20,6 +20,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { parseApiTimestamp } from '@/lib/datetime';
 
 interface PrecheckCheck {
   name: string;
@@ -92,7 +93,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bgColor: str
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleString();
+  return parseApiTimestamp(dateStr).toLocaleString();
 }
 
 interface AgentPrecheckPanelProps {

@@ -21,6 +21,7 @@ import StatusBadge from '@/components/StatusBadge';
 import ProjectWizard from '@/components/ProjectWizard';
 import ProjectForm from '@/components/ProjectForm';
 import ProjectCreateModeSelector from '@/components/ProjectCreateModeSelector';
+import { parseApiTimestamp } from '@/lib/datetime';
 
 type SortOption = 
   | 'created_at_desc'
@@ -65,7 +66,7 @@ const STATUS_TABS: { value: string | null; label: string }[] = [
 
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '-';
-  const date = new Date(dateStr);
+  const date = parseApiTimestamp(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSecs = Math.floor(diffMs / 1000);

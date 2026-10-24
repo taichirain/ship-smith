@@ -84,10 +84,11 @@ import {
   TargetPlatform,
   GitCredentialType,
 } from '@/lib/api';
+import { parseApiTimestamp } from '@/lib/datetime';
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleString();
+  return parseApiTimestamp(dateStr).toLocaleString();
 }
 
 function copyToClipboard(text: string): Promise<void> {
@@ -679,19 +680,6 @@ export default function ProjectDetailPage() {
     }
   }, [projectId, timelineFilter]);
 
-  const loadHealthHistory = useCallback(async () => {
-    try {
-      setHealthHistoryLoading(true);
-      const data = await api.getProjectHealthHistory(projectId, healthTimeRange);
-      setHealthHistoryRecords(data.records);
-      setHealthDeploymentMarkers(data.deployment_markers);
-    } catch (err: any) {
-      // Silently fail for health history
-    } finally {
-      setHealthHistoryLoading(false);
-    }
-  }, [projectId, healthTimeRange]);
-
   const loadTargets = useCallback(async () => {
     try {
       setTargetsLoading(true);
@@ -793,10 +781,27 @@ export default function ProjectDetailPage() {
     loadStatus();
     loadTimeline();
     loadNotifications();
-    loadHealthHistory();
     loadTargets();
     loadOnboarding();
-  }, [loadData, loadStatus, loadTimeline, loadNotifications, loadHealthHistory, loadTargets, loadOnboarding]);
+  }, [loadData, loadStatus, loadTimeline, loadNotifications, loadTargets, loadOnboarding]);
+
+  useEffect(() => {
+    let active = true;
+    setHealthHistoryLoading(true);
+    api.getProjectHealthHistory(projectId, healthTimeRange)
+      .then((data) => {
+        if (!active) return;
+        setHealthHistoryRecords(data.records);
+        setHealthDeploymentMarkers(data.deployment_markers);
+      })
+      .catch(() => {
+        // Keep the previous chart if the refresh fails.
+      })
+      .finally(() => {
+        if (active) setHealthHistoryLoading(false);
+      });
+    return () => { active = false; };
+  }, [projectId, healthTimeRange]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1413,6 +1418,7 @@ export default function ProjectDetailPage() {
               records={healthHistoryRecords}
               deploymentMarkers={healthDeploymentMarkers}
               timeRange={healthTimeRange}
+              loading={healthHistoryLoading}
               onTimeRangeChange={handleTimeRangeChange}
             />
 
