@@ -48,6 +48,7 @@ class ProjectBase(BaseModel):
     pull_timeout_seconds: int = Field(default=900, ge=60, le=7200)
     build_no_cache: bool = False
     service_scope: str = Field(default="app", max_length=16)
+    app_services: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
     troubleshooting_hint: Optional[str] = None
@@ -95,6 +96,17 @@ class ProjectCreate(ProjectBase):
             raise ValueError("service_scope must be 'app' or 'all'")
         return value
 
+    @field_validator("app_services")
+    @classmethod
+    def app_services_must_be_valid(cls, value: List[str]) -> List[str]:
+        import re
+
+        if len(value) != len(set(value)) or any(
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", service) for service in value
+        ):
+            raise ValueError("app_services must be unique Compose service names")
+        return value
+
     @field_validator("compose_profiles")
     @classmethod
     def compose_profiles_must_be_valid(cls, value: List[str]) -> List[str]:
@@ -135,6 +147,7 @@ class ProjectUpdate(BaseModel):
     pull_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=7200)
     build_no_cache: Optional[bool] = None
     service_scope: Optional[str] = Field(default=None, max_length=16)
+    app_services: Optional[List[str]] = None
     webhook_secret: Optional[str] = Field(default=None, max_length=256)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
@@ -182,6 +195,13 @@ class ProjectUpdate(BaseModel):
         if value is not None and value not in {"app", "all"}:
             raise ValueError("service_scope must be 'app' or 'all'")
         return value
+
+    @field_validator("app_services")
+    @classmethod
+    def optional_app_services_must_be_valid(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return value
+        return ProjectCreate.app_services_must_be_valid(value)
 
     @field_validator("compose_profiles")
     @classmethod

@@ -556,10 +556,13 @@ class Deployer:
         compose_file: str = "docker-compose.yml",
         timeout: Optional[int] = None,
         no_cache: bool = False,
+        services: Optional[List[str]] = None,
     ) -> None:
         cmd = [*self._compose_args(compose_file), "build", "--progress", "plain"]
         if no_cache:
             cmd.append("--no-cache")
+        if services:
+            cmd.extend(services)
         code, _ = self._run_command(
             cmd,
             phase="docker_build",
@@ -572,9 +575,13 @@ class Deployer:
         self,
         compose_file: str = "docker-compose.yml",
         timeout: Optional[int] = None,
+        services: Optional[List[str]] = None,
     ) -> None:
+        cmd = [*self._compose_args(compose_file), "pull"]
+        if services:
+            cmd.extend(services)
         code, _ = self._run_command(
-            [*self._compose_args(compose_file), "pull"],
+            cmd,
             phase="docker_pull",
             timeout=timeout,
         )
@@ -588,6 +595,7 @@ class Deployer:
     ) -> None:
         cmd = [*self._compose_args(compose_file), "up", "-d"]
         if services:
+            cmd.append("--no-deps")
             cmd.extend(services)
         code, _ = self._run_command(
             cmd,
@@ -623,6 +631,22 @@ class Deployer:
         )
         if code != 0:
             raise DeployError("docker_stop_failed", "docker compose stop failed")
+
+    @staticmethod
+    def resolve_services(
+        service_scope: str,
+        app_services: Optional[List[str]],
+        compose_service: str,
+    ) -> List[str]:
+        if service_scope == "all":
+            return []
+        services = list(app_services or [])
+        if service_scope != "app" or not services or compose_service not in services:
+            raise DeployError(
+                "app_services_invalid",
+                "App scope requires an explicit service list containing the primary Compose service",
+            )
+        return services
 
     def snapshot_runtime(self, compose_file: str = "docker-compose.yml") -> Dict[str, Any]:
         code, output = self._run_command(
@@ -753,11 +777,15 @@ class Deployer:
         build_timeout_seconds: int = 1800,
         pull_timeout_seconds: int = 900,
         build_no_cache: bool = False,
+        service_scope: str = "all",
+        app_services: Optional[List[str]] = None,
+        compose_service: str = "app",
     ) -> Dict[str, Any]:
         if project_id is not None:
             self.project_id = project_id
         if compose_profiles is not None:
             self.compose_profiles = [str(p) for p in compose_profiles if str(p).strip()]
+        target_services = self.resolve_services(service_scope, app_services, compose_service)
 
         self.log_collector.info("git_fetch", "Starting deployment...")
         auth = self.ensure_repo(
@@ -798,11 +826,13 @@ class Deployer:
                     compose_file,
                     timeout=build_timeout_seconds,
                     no_cache=build_no_cache,
+                    services=target_services,
                 )
             elif strategy == "compose-pull":
                 self.docker_compose_pull(
                     compose_file,
                     timeout=pull_timeout_seconds,
+                    services=target_services,
                 )
             else:
                 raise DeployError(
@@ -818,7 +848,7 @@ class Deployer:
                 no_deps=migration_no_deps,
             )
 
-            self.docker_compose_up(compose_file)
+            self.docker_compose_up(compose_file, services=target_services)
             self.run_post_deploy(post_deploy)
 
             return {

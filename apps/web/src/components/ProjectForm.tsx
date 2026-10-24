@@ -42,6 +42,7 @@ const FORM_DEFAULTS: Partial<FormData> = {
   pull_timeout_seconds: 900,
   build_no_cache: false,
   service_scope: 'app',
+  app_services: '',
 };
 
 function isFormEmpty(data: FormData): boolean {
@@ -83,6 +84,7 @@ interface FormData {
   pull_timeout_seconds: number;
   build_no_cache: boolean;
   service_scope: string;
+  app_services: string;
 }
 
 interface ProjectFormProps {
@@ -128,6 +130,7 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
     pull_timeout_seconds: 900,
     build_no_cache: false,
     service_scope: 'app',
+    app_services: '',
   });
 
   const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
@@ -396,6 +399,9 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
         pull_timeout_seconds: formData.pull_timeout_seconds,
         build_no_cache: formData.build_no_cache,
         service_scope: formData.service_scope,
+        app_services: formData.app_services.split(',').map((item) => item.trim()).filter(Boolean).length
+          ? formData.app_services.split(',').map((item) => item.trim()).filter(Boolean)
+          : [formData.compose_service],
       });
       clearDraft();
       onSuccess(project);
@@ -783,11 +789,23 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
                   value={formData.service_scope}
                   onChange={(e) => updateField('service_scope', e.target.value)}
                 >
-                  <option value="app">app（只作用于应用服务，不影响数据库）</option>
+                  <option value="app">app（只操作下方列出的服务）</option>
                   <option value="all">all（整份 Compose，含数据库等基础设施）</option>
                 </select>
                 <p className="text-xs text-gray-400 mt-1">
-                  Stop/Start 默认只操作应用服务；数据库等基础设施请选 all（谨慎）
+                  app 范围适用于部署、停止和启动；首次初始化有状态服务应单独操作。
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Application Services（逗号分隔）</label>
+                <input
+                  className="input"
+                  value={formData.app_services}
+                  onChange={(e) => updateField('app_services', e.target.value)}
+                  placeholder={formData.compose_service || 'app'}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  留空时仅操作主服务；多容器项目请列出全部应用服务，勿包含数据库等有状态服务。
                 </p>
               </div>
               <div className="md:col-span-2 flex items-center gap-2">

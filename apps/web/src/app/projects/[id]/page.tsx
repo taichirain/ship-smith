@@ -546,6 +546,7 @@ export default function ProjectDetailPage() {
   const [showEditForm, setShowEditForm] = useState(false);
   const [editFormData, setEditFormData] = useState<ProjectUpdate>({});
   const [editComposeProfilesText, setEditComposeProfilesText] = useState('');
+  const [editAppServicesText, setEditAppServicesText] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [showRunbookForm, setShowRunbookForm] = useState(false);
@@ -825,7 +826,10 @@ export default function ProjectDetailPage() {
 
   async function handleStopProject() {
     if (!project) return;
-    if (!window.confirm('停止该项目的所有容器？容器和数据卷都会保留，不会被删除。')) return;
+    const scope = project.service_scope === 'all'
+      ? '整份 Compose 的服务'
+      : `应用服务：${(project.app_services || []).join(', ') || '未配置'}`;
+    if (!window.confirm(`停止${scope}？容器和数据卷都会保留。`)) return;
     try {
       setDeploying(true);
       await api.stopProject(projectId);
@@ -931,6 +935,7 @@ export default function ProjectDetailPage() {
       service_scope: project.service_scope,
     });
     setEditComposeProfilesText((project.compose_profiles || []).join(', '));
+    setEditAppServicesText((project.app_services || []).join(', '));
     setShowEditForm(true);
   }
 
@@ -961,6 +966,9 @@ export default function ProjectDetailPage() {
           .split(',')
           .map((item) => item.trim())
           .filter(Boolean),
+        app_services: editAppServicesText.split(',').map((item) => item.trim()).filter(Boolean).length
+          ? editAppServicesText.split(',').map((item) => item.trim()).filter(Boolean)
+          : [editFormData.compose_service || 'app'],
       };
       const updated = await api.updateProject(projectId, payload);
       setProject(updated);
@@ -1654,7 +1662,7 @@ export default function ProjectDetailPage() {
                     <p className="text-xs text-gray-400">
                       {project.service_scope === 'all'
                         ? 'Stop/Start 作用于整份 Compose（含数据库）'
-                        : 'Stop/Start 只作用于应用服务，不影响数据库'}
+                        : `部署、停止和启动仅作用于：${(project.app_services || []).join(', ')}`}
                     </p>
                   </div>
                 </div>
@@ -3512,12 +3520,21 @@ flags_sync_interval_seconds: 30`}
                           })
                         }
                       >
-                        <option value="app">app（只作用于应用服务，不影响数据库）</option>
+                        <option value="app">app（只操作指定的应用服务）</option>
                         <option value="all">all（整份 Compose，含数据库等基础设施）</option>
                       </select>
                       <p className="text-xs text-gray-400 mt-1">
-                        Stop/Start 默认只操作应用服务；数据库等基础设施请选 all（谨慎）
+                        app 范围适用于部署、停止和启动；请明确列出全部应用服务。
                       </p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="label">Application Services（逗号分隔）</label>
+                      <input
+                        className="input"
+                        value={editAppServicesText}
+                        onChange={(e) => setEditAppServicesText(e.target.value)}
+                        placeholder={editFormData.compose_service || 'app'}
+                      />
                     </div>
                     <div className="md:col-span-2 flex items-center gap-2">
                       <input

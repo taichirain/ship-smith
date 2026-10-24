@@ -61,6 +61,7 @@ const STATUS_TABS: { value: string | null; label: string }[] = [
   { value: 'unhealthy', label: 'Health Check Failed' },
   { value: 'degraded', label: 'Degraded' },
   { value: 'healthy', label: 'Healthy' },
+  { value: 'offline', label: 'Agent Offline' },
   { value: 'unknown', label: 'Unknown' },
 ];
 

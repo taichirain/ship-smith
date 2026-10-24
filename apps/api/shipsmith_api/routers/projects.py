@@ -299,6 +299,7 @@ def _build_project_summary(project, project_status) -> dict:
         "pull_timeout_seconds": project.pull_timeout_seconds,
         "build_no_cache": project.build_no_cache,
         "service_scope": project.service_scope,
+        "app_services": project.app_services or [],
         "runbook": {
             "notes": project.notes,
             "release_notes_hint": project.release_notes_hint,
@@ -328,6 +329,11 @@ async def create_project(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="migration_service is required when migration_command is set",
+        )
+    if data.service_scope == "app" and data.compose_service not in (data.app_services or [data.compose_service]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="app_services must include compose_service",
         )
     credential_update = _build_git_credential_update(
         project=None,
@@ -372,6 +378,7 @@ async def create_project(
         pull_timeout_seconds=data.pull_timeout_seconds,
         build_no_cache=data.build_no_cache,
         service_scope=data.service_scope,
+        app_services=data.app_services or [data.compose_service],
         agent_id=agent_id,
         agent_token_hash=agent_token_hash,
         webhook_endpoint_id=_generate_webhook_endpoint_id(),
@@ -554,6 +561,7 @@ async def get_project(
         "pull_timeout_seconds": project.pull_timeout_seconds,
         "build_no_cache": project.build_no_cache,
         "service_scope": project.service_scope,
+        "app_services": project.app_services or [],
         "agent_id": project.agent_id,
         "webhook_endpoint_id": project.webhook_endpoint_id,
         "created_at": project.created_at,
@@ -592,6 +600,15 @@ async def update_project(
     }
     credential_payload = {field: update_data.pop(field) for field in list(update_data.keys()) if field in credential_fields}
 
+    next_scope = update_data.get("service_scope", project.service_scope)
+    next_primary = update_data.get("compose_service", project.compose_service)
+    next_services = update_data.get("app_services", project.app_services)
+    if next_scope == "app" and (not next_services or next_primary not in next_services):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="app_services must include compose_service in app scope",
+        )
+
     old_values = {}
     new_values = {}
     non_nullable_defaults = {
@@ -604,6 +621,7 @@ async def update_project(
         "pull_timeout_seconds": 900,
         "build_no_cache": False,
         "service_scope": "app",
+        "app_services": [project.compose_service],
     }
 
     for field, value in update_data.items():

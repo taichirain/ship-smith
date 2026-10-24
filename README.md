@@ -162,8 +162,8 @@ Agent 在 Core 不可达时会把部署结果和日志写入 `~/.local/state/shi
 
 项目详情页提供 **Stop / Start** 按钮：
 
-- **Stop** 执行 `docker compose stop`，只停容器，**不删除容器和卷**，随时可 Start 恢复。
-- **Start** 执行 `docker compose up -d`，并重新跑健康检查。
+- **Stop** 对明确配置的服务执行 `docker compose stop`，只停容器，**不删除容器和卷**。
+- **Start** 对同一服务列表执行 `docker compose up -d --no-deps`，并重新跑健康检查。
 - 停止后项目进入“有意停止”状态：Agent 心跳上报 `stopped`，期间不产生健康告警；Agent 重启后状态不丢。
 - 成功的部署/回滚会自动清除“有意停止”状态。
 - 停止/启动都会记录为任务（含日志），在时间线里显示为 `operation_*` 事件。
@@ -172,12 +172,13 @@ Stop/Start 需要项目当前没有进行中的部署或其他操作；有正在
 
 ## 操作范围与数据库保护
 
-Stop/Start 默认只作用于项目的**应用服务**（`compose_service`），不会碰同一份 Compose 里的数据库等基础设施：
+`compose_service` 仅用于主服务/健康检查，不能代表整个项目。项目通过
+`app_services` 明确列出参与普通部署、Stop、Start 的服务：
 
-- `service_scope: "app"`（默认）→ `docker compose stop <app>` / `up -d <app>`，数据库不受影响。
-- `service_scope: "all"` → 作用于整份 Compose（含数据库），谨慎使用。
+- `service_scope: "app"`（默认）→ 仅操作 `app_services`；启动使用 `--no-deps`，不会隐式启动未列出的依赖。多容器项目必须列全 Web/API/Worker/Beat 等应用服务。
+- `service_scope: "all"` → 普通部署和 Stop/Start 均作用于整份 Compose（含数据库），仅用于确实需要整栈生命周期的项目。
 
-**部署（Deploy）仍是整份 `up -d`**：首次部署需要把数据库等服务也拉起来。它是声明式的，只重建配置变化的服务。为避免 `compose-pull` 因镜像 tag 漂移重建数据库，**基础设施镜像请锁定 tag**（如 `postgres:16.4-alpine`，不要用 `postgres:16-alpine`）。
+首次创建有状态服务与后续数据库升级是独立维护操作，不能依赖普通应用部署隐式完成。升级前应先检查并补全从旧版本迁移来的 `app_services` 配置。
 
 ## 目录结构
 

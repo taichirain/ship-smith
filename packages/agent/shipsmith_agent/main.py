@@ -265,12 +265,14 @@ class Agent:
         compose_file = task.get("compose_file", "docker-compose.yml")
         healthcheck_url = task.get("healthcheck_url")
         service_scope = task.get("service_scope", "app")
-        target_services: List[str] = []
-        if service_scope == "app":
-            target_services = [task.get("compose_service") or "app"]
 
         try:
             deployer.assert_managed_repo(task.get("git_repo"))
+            target_services = deployer.resolve_services(
+                service_scope,
+                task.get("app_services"),
+                task.get("compose_service") or "app",
+            )
 
             if kind == "service_stop":
                 log_collector.info(
@@ -279,6 +281,8 @@ class Agent:
                 )
                 deployer.docker_compose_stop(compose_file, services=target_services)
                 self._intentionally_stopped = True
+                if isinstance(self._project_config, dict):
+                    self._project_config["intentionally_stopped"] = True
                 self._collect_and_send_heartbeat()
                 self._finish_task(task_id=task_id, status="success")
                 return
@@ -311,6 +315,8 @@ class Agent:
                     return
 
             self._intentionally_stopped = False
+            if isinstance(self._project_config, dict):
+                self._project_config["intentionally_stopped"] = False
             self._collect_and_send_heartbeat()
             self._finish_task(task_id=task_id, status="success", health_result=health_result)
 
@@ -440,6 +446,9 @@ class Agent:
                     build_timeout_seconds=build_timeout_seconds,
                     pull_timeout_seconds=pull_timeout_seconds,
                     build_no_cache=build_no_cache,
+                    service_scope=task.get("service_scope", "app"),
+                    app_services=task.get("app_services"),
+                    compose_service=task.get("compose_service") or "app",
                 )
                 actual_commit = deploy_result.get("commit")
                 previous_commit = deploy_result.get("previous_commit")
@@ -478,6 +487,9 @@ class Agent:
                         logger.info(f"Task {task_id} completed with health check failure")
                         return
 
+                self._intentionally_stopped = False
+                if isinstance(self._project_config, dict):
+                    self._project_config["intentionally_stopped"] = False
                 self._collect_and_send_heartbeat()
 
                 self._finish_task(

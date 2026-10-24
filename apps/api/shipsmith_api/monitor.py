@@ -38,9 +38,13 @@ def _evaluate_project(
     is_offline = last_seen is None or last_seen < cutoff
 
     if is_offline:
+        status_changed = status.health_status != "offline"
+        if status_changed:
+            status.health_status = "offline"
         if not detected:
             snapshot[DETECTED_OFFLINE_KEY] = now.isoformat()
             status.snapshot = snapshot
+        if status_changed or not detected:
             status.updated_at = now
             db.commit()
 
