@@ -71,6 +71,80 @@ done
 docker exec "${API_CONTAINER}" python -c \
   "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
 
+echo "== verify build tuning fields reach the Agent task payload =="
+docker exec -i -e ADMIN_PASSWORD="${admin_password}" "${API_CONTAINER}" python - <<'PY'
+import json
+import os
+import urllib.parse
+import urllib.request
+
+base = "http://127.0.0.1:8000/api/v1"
+
+
+def call(path, method="GET", data=None, form=None, token=None):
+    headers = {}
+    body = None
+    if form is not None:
+        body = urllib.parse.urlencode(form).encode()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    elif data is not None:
+        body = json.dumps(data).encode()
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(base + path, data=body, headers=headers, method=method)
+    with urllib.request.urlopen(request) as response:
+        return json.loads(response.read().decode())
+
+
+login = call(
+    "/auth/login",
+    method="POST",
+    form={"username": "admin", "password": os.environ["ADMIN_PASSWORD"]},
+)
+admin_token = login["access_token"]
+
+project = call(
+    "/projects",
+    method="POST",
+    token=admin_token,
+    data={
+        "name": "drill-tuning",
+        "git_repo": "https://example.invalid/drill/tuning.git",
+        "git_branch": "main",
+        "deploy_workdir": "/tmp/drill-tuning",
+        "compose_file": "docker-compose.yml",
+        "compose_service": "app",
+        "deploy_strategy": "compose-build",
+        "healthcheck_url": "http://127.0.0.1:8000/health",
+        "healthcheck_timeout_seconds": 5,
+        "healthcheck_expected_status": 200,
+        "flags_file_path": "/tmp/drill-tuning/flags.json",
+        "build_timeout_seconds": 5400,
+        "pull_timeout_seconds": 1800,
+        "build_no_cache": True,
+    },
+)
+assert project["build_timeout_seconds"] == 5400
+assert project["pull_timeout_seconds"] == 1800
+assert project["build_no_cache"] is True
+
+call(
+    f"/projects/{project['id']}/deploy",
+    method="POST",
+    token=admin_token,
+    data={"trigger_source": "manual"},
+)
+
+task_response = call("/agents/tasks", token=project["agent_token"])
+task = task_response.get("task")
+assert task is not None
+assert task["build_timeout_seconds"] == 5400
+assert task["pull_timeout_seconds"] == 1800
+assert task["build_no_cache"] is True
+print("build tuning fields verified in Agent task payload")
+PY
+
 COMPOSE_FILE="${COMPOSE_FILE}" ENV_FILE="${ENV_FILE}" \
   SHIPSMITH_BACKUP_DIR="${BACKUP_DIR}" SHIPSMITH_BACKUP_RETENTION=1 \
   "${ROOT}/scripts/backup_shipsmith.sh"
@@ -82,5 +156,5 @@ fi
 "${ROOT}/scripts/verify_shipsmith_backup.sh" "${backup_path}"
 compose run --rm api migrate
 
-echo "Core drill passed: build, migration, API health, backup, isolated restore, repeat migration."
+echo "Core drill passed: build, migration, API health, build tuning payload, backup, isolated restore, repeat migration."
 echo "This does not test an application rollback or the Agent outbox."
