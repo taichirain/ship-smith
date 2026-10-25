@@ -164,6 +164,19 @@ class CoreClient:
             logger.warning(f"Failed to send heartbeat: {e}")
             return False
 
+    def send_diagnostics(self, payload: Dict[str, Any]) -> bool:
+        try:
+            client = self._get_client()
+            response = client.post(
+                f"{self.base_url}/agents/diagnostics",
+                json=payload,
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to send diagnostics: {e}")
+            return False
+
     def sync_flags(self, current_version: int) -> Optional[Dict[str, Any]]:
         try:
             client = self._get_client()

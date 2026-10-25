@@ -385,3 +385,32 @@ class DeploymentTarget(Base):
     __table_args__ = (
         UniqueConstraint("deployment_id", "project_target_id", name="uq_deployment_targets_deployment_project_target"),
     )
+
+
+class DiagnosticSnapshot(Base):
+    """A bounded capture of container state and runtime logs.
+
+    Created when an operator asks for logs, when a deploy fails its health
+    check, or when an application flips from healthy to unhealthy.
+    """
+
+    __tablename__ = "diagnostic_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    deployment_id = Column(
+        Integer, ForeignKey("deployments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    agent_id = Column(String(64))
+    trigger = Column(String(32), nullable=False, default="manual")
+    reason = Column(String(200))
+    content = Column(Text, nullable=False, default="")
+    byte_size = Column(Integer, nullable=False, default=0)
+    truncated = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_diagnostic_snapshots_project_created", "project_id", "created_at"),
+    )

@@ -174,6 +174,16 @@ class Agent:
                         expected_status=config.get("healthcheck_expected_status", 200),
                     )
 
+        previous_health = getattr(self, "_last_health_status", None)
+        current_health = app_health.get("status")
+        self._last_health_status = current_health
+        if previous_health == "healthy" and current_health in ("unhealthy", "degraded"):
+            threading.Thread(
+                target=self._capture_health_diagnostics,
+                args=(current_health,),
+                daemon=True,
+            ).start()
+
         payload = {
             "agent_version": AGENT_VERSION,
             "system": system_metrics,
@@ -259,6 +269,108 @@ class Agent:
                 error_message=str(e),
                 failure_phase="precheck",
             )
+
+    def _diagnostics_deployer(self, task_or_config, project_id=None):
+        quiet = LogCollector(lambda *args, **kwargs: True)
+        return Deployer(
+            self.settings.workdir,
+            quiet,
+            project_id=project_id,
+            compose_profiles=(task_or_config or {}).get("compose_profiles") or [],
+        )
+
+    def _diagnostics_services(self, deployer, config):
+        return deployer.resolve_services(
+            config.get("service_scope", "app"),
+            config.get("app_services"),
+            config.get("compose_service") or "app",
+        )
+
+    def _execute_diagnostics(self, task_id: int, task: dict, deployer=None) -> None:
+        logger.info(f"Collecting diagnostics for task {task_id}")
+        if not self.client.start_task(task_id):
+            logger.error(f"Failed to start task {task_id}")
+            return
+
+        try:
+            deployer = deployer or self._diagnostics_deployer(task, task.get("project_id"))
+            services = self._diagnostics_services(deployer, task)
+            snapshot = deployer.collect_diagnostics(
+                task.get("compose_file") or "docker-compose.yml",
+                services,
+            )
+            delivered = self.client.send_diagnostics(
+                {
+                    "deployment_id": task_id,
+                    "trigger": "manual",
+                    "reason": "requested from the panel",
+                    "content": snapshot["content"],
+                    "truncated": snapshot["truncated"],
+                }
+            )
+            self._finish_task(
+                task_id=task_id,
+                status="success" if delivered else "failed",
+                error_code=None if delivered else "diagnostics_upload_failed",
+                error_message=None if delivered else "Diagnostics were captured but not delivered",
+                failure_phase=None if delivered else "diagnostics",
+            )
+        except DeployError as e:
+            logger.error(f"Diagnostics failed: {e.message}")
+            self._finish_task(
+                task_id=task_id,
+                status="failed",
+                error_code=e.error_code,
+                error_message=e.message,
+                failure_phase="diagnostics",
+            )
+        except Exception as e:
+            logger.error(f"Diagnostics failed with unexpected error: {e}")
+            self._finish_task(
+                task_id=task_id,
+                status="failed",
+                error_code="diagnostics_failed",
+                error_message=str(e),
+                failure_phase="diagnostics",
+            )
+
+    def _capture_deploy_failure_diagnostics(self, deployer, compose_file, task, reason):
+        """Grab container logs while the failed container still exists."""
+        try:
+            services = self._diagnostics_services(deployer, task)
+            snapshot = deployer.collect_diagnostics(compose_file, services)
+            self.client.send_diagnostics(
+                {
+                    "deployment_id": task.get("id"),
+                    "trigger": "deploy_failed",
+                    "reason": reason[:200],
+                    "content": snapshot["content"],
+                    "truncated": snapshot["truncated"],
+                }
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to capture post-deploy diagnostics: {exc}")
+
+    def _capture_health_diagnostics(self, status: str) -> None:
+        try:
+            config = self._project_config or {}
+            deployer = self._diagnostics_deployer(config)
+            services = self._diagnostics_services(deployer, config)
+            snapshot = deployer.collect_diagnostics(
+                config.get("compose_file") or "docker-compose.yml",
+                services,
+            )
+            self.client.send_diagnostics(
+                {
+                    "deployment_id": None,
+                    "trigger": "unhealthy",
+                    "reason": f"health changed to {status}"[:200],
+                    "content": snapshot["content"],
+                    "truncated": snapshot["truncated"],
+                }
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to capture health diagnostics: {exc}")
 
     def _execute_service_operation(self, task_id, project_id, kind, task, deployer, log_collector):
         current_phase = "service_stop" if kind == "service_stop" else "service_start"
@@ -400,6 +512,10 @@ class Agent:
                 logger.error(f"Failed to start task {task_id}")
                 return
 
+            if kind == "logs":
+                self._execute_diagnostics(task_id, task, deployer)
+                return
+
             if kind in ("service_stop", "service_start"):
                 self._execute_service_operation(
                     task_id=task_id,
@@ -472,6 +588,7 @@ class Agent:
                         final_status = "failed" if kind == "deploy" else "rollback_failed"
                         error_msg = f"Health check failed: {health_result}"
                         log_collector.error("health_check", error_msg)
+                        self._capture_deploy_failure_diagnostics(deployer, compose_file, task, error_msg)
                         self._finish_task(
                             task_id=task_id,
                             status=final_status,

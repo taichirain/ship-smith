@@ -142,7 +142,7 @@ class Deployer:
                 value = value.replace(secret, "***")
 
         value = re.sub(
-            r"(?i)(https?://[^\s/@:]+:)[^@\s]+@",
+            r"(?i)([a-z][a-z0-9+.-]*://[^\s/@:]+:)[^@\s]+@",
             r"\1***@",
             value,
         )
@@ -647,6 +647,58 @@ class Deployer:
                 "App scope requires an explicit service list containing the primary Compose service",
             )
         return services
+
+    def collect_diagnostics(
+        self,
+        compose_file: str,
+        services: List[str],
+        tail: int = 200,
+        max_bytes: int = 65536,
+    ) -> Dict[str, Any]:
+        """Capture container state plus the tail of each service's logs.
+
+        The result is redacted and hard-capped, so a crash loop cannot flood
+        the control plane.
+        """
+        parts: List[str] = []
+
+        _, ps_output = self._run_command(
+            [*self._compose_args(compose_file), "ps", "--format", "json"],
+            phase="diagnostics",
+            timeout=60,
+        )
+        parts.append("== docker compose ps ==")
+        parts.append(ps_output.strip() if ps_output.strip() else "(no containers reported)")
+
+        for service in services:
+            _, logs_output = self._run_command(
+                [
+                    *self._compose_args(compose_file),
+                    "logs",
+                    "--no-color",
+                    "--timestamps",
+                    "--tail",
+                    str(tail),
+                    service,
+                ],
+                phase="diagnostics",
+                timeout=90,
+            )
+            parts.append("")
+            parts.append(f"== logs: {service} (last {tail} lines) ==")
+            parts.append(logs_output.rstrip() if logs_output.strip() else "(no log output)")
+
+        content = self._redact("\n".join(parts))
+        encoded = content.encode("utf-8")
+        truncated = len(encoded) > max_bytes
+        if truncated:
+            content = encoded[:max_bytes].decode("utf-8", "ignore") + "\n... [truncated]"
+
+        return {
+            "content": content,
+            "byte_size": len(content.encode("utf-8")),
+            "truncated": truncated,
+        }
 
     def snapshot_runtime(self, compose_file: str = "docker-compose.yml") -> Dict[str, Any]:
         code, output = self._run_command(

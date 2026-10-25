@@ -146,6 +146,21 @@ export interface FeatureFlag {
   archived?: boolean;
 }
 
+export interface DiagnosticSnapshotSummary {
+  id: number;
+  project_id: number;
+  deployment_id: number | null;
+  trigger: string;
+  reason: string | null;
+  byte_size: number;
+  truncated: boolean;
+  created_at: string;
+}
+
+export interface DiagnosticSnapshotDetail extends DiagnosticSnapshotSummary {
+  content: string;
+}
+
 export interface ProjectStatus {
   project_id: number;
   agent_last_seen_at: string | null;
@@ -1062,6 +1077,27 @@ export const api = {
       ? `/v1/projects/${projectId}/timeline?${queryString}`
       : `/v1/projects/${projectId}/timeline`;
     return request<TimelineResponse>('GET', path);
+  },
+
+  async requestProjectLogs(projectId: number): Promise<{ ok: boolean; deployment_id: number; status: string }> {
+    return request<{ ok: boolean; deployment_id: number; status: string }>(
+      'POST',
+      `/v1/projects/${projectId}/logs`,
+    );
+  },
+
+  async listProjectLogs(projectId: number, limit: number = 20): Promise<DiagnosticSnapshotSummary[]> {
+    return request<DiagnosticSnapshotSummary[]>(
+      'GET',
+      `/v1/projects/${projectId}/logs?limit=${limit}`,
+    );
+  },
+
+  async getProjectLogSnapshot(projectId: number, snapshotId: number): Promise<DiagnosticSnapshotDetail> {
+    return request<DiagnosticSnapshotDetail>(
+      'GET',
+      `/v1/projects/${projectId}/logs/${snapshotId}`,
+    );
   },
 
   async getProjectHealthHistory(projectId: number, timeRange: TimeRange = '24h'): Promise<HealthHistoryResponse> {

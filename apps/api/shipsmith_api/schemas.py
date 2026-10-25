@@ -767,3 +767,29 @@ class OnboardingStatusResponse(BaseModel):
     install_command_expires_at: Optional[datetime] = None
     manual_steps_available: bool = True
     troubleshooting_hints: List[str] = []
+
+
+class DiagnosticSnapshotSummary(BaseModel):
+    id: int
+    project_id: int
+    deployment_id: Optional[int] = None
+    trigger: str = "manual"
+    reason: Optional[str] = None
+    byte_size: int = 0
+    truncated: bool = False
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DiagnosticSnapshotDetail(DiagnosticSnapshotSummary):
+    content: str = ""
+
+
+class DiagnosticSnapshotIngest(BaseModel):
+    deployment_id: Optional[int] = None
+    trigger: str = Field(default="manual")
+    reason: Optional[str] = None
+    content: str = ""
+    truncated: bool = False

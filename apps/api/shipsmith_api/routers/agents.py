@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from ..deps import get_db, get_current_agent
-from ..schemas import DeploymentResponse
+from ..config import get_settings
+from ..schemas import DeploymentResponse, DiagnosticSnapshotIngest
 from ..security import decrypt_secret
 from ..monitor import DETECTED_OFFLINE_KEY, check_agent_offline
 
@@ -834,3 +835,77 @@ async def save_precheck_result(
         "ok": True,
         "precheck_id": precheck.id,
     }
+
+
+@router.post("/diagnostics", status_code=status.HTTP_201_CREATED)
+async def save_diagnostics(
+    payload: DiagnosticSnapshotIngest,
+    db: Session = Depends(get_db),
+    current_agent: dict = Depends(get_current_agent),
+):
+    """Store a bounded log/container snapshot sent by an agent."""
+    import sys
+    import os
+
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "packages", "db"))
+    from shipsmith_db import DiagnosticSnapshot
+
+    settings = get_settings()
+    project_id = current_agent["project_id"]
+
+    content = payload.content or ""
+    truncated = payload.truncated
+    if len(content.encode("utf-8")) > settings.diagnostic_snapshot_max_bytes:
+        content = content.encode("utf-8")[: settings.diagnostic_snapshot_max_bytes].decode("utf-8", "ignore")
+        truncated = True
+
+    # Automatic captures can repeat while a container keeps failing; keep one
+    # per deployment per five minutes instead of filling the table.
+    if payload.trigger != "manual":
+        recent = (
+            db.query(DiagnosticSnapshot)
+            .filter(
+                DiagnosticSnapshot.project_id == project_id,
+                DiagnosticSnapshot.trigger == payload.trigger,
+                DiagnosticSnapshot.deployment_id == payload.deployment_id,
+                DiagnosticSnapshot.created_at >= _get_now() - timedelta(minutes=5),
+            )
+            .order_by(DiagnosticSnapshot.created_at.desc())
+            .first()
+        )
+        if recent:
+            return {"ok": True, "id": recent.id, "deduplicated": True}
+
+    snapshot = DiagnosticSnapshot(
+        project_id=project_id,
+        deployment_id=payload.deployment_id,
+        agent_id=current_agent.get("agent_id"),
+        trigger=payload.trigger[:32],
+        reason=(payload.reason or None),
+        content=content,
+        byte_size=len(content.encode("utf-8")),
+        truncated=truncated,
+    )
+    db.add(snapshot)
+    db.commit()
+    db.refresh(snapshot)
+
+    # Keep only the newest N snapshots per project.
+    keep = settings.diagnostic_snapshot_max_per_project
+    stale_ids = [
+        row.id
+        for row in (
+            db.query(DiagnosticSnapshot.id)
+            .filter(DiagnosticSnapshot.project_id == project_id)
+            .order_by(DiagnosticSnapshot.created_at.desc())
+            .offset(keep)
+            .all()
+        )
+    ]
+    if stale_ids:
+        db.query(DiagnosticSnapshot).filter(DiagnosticSnapshot.id.in_(stale_ids)).delete(
+            synchronize_session=False
+        )
+        db.commit()
+
+    return {"ok": True, "id": snapshot.id, "truncated": truncated, "byte_size": snapshot.byte_size}

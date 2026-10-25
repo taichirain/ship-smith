@@ -17,6 +17,7 @@ from .models import (
     AgentPrecheck,
     ProjectTarget,
     DeploymentTarget,
+    DiagnosticSnapshot,
 )
 
 __all__ = [
@@ -41,4 +42,5 @@ __all__ = [
     "AgentPrecheck",
     "ProjectTarget",
     "DeploymentTarget",
+    "DiagnosticSnapshot",
 ]

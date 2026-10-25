@@ -32,6 +32,8 @@ from ..schemas import (
     ProjectListResponse,
     ProjectWithStatusResponse,
     ProjectStatusDetailResponse,
+    DiagnosticSnapshotSummary,
+    DiagnosticSnapshotDetail,
     DeploymentResponse,
     DeployRequest,
     RollbackRequest,
@@ -2867,3 +2869,124 @@ async def list_compose_services(
         credential_ssh_private_key=request.git_credential_ssh_private_key,
         credential_ssh_known_hosts=request.git_credential_ssh_known_hosts,
     )
+
+
+@router.post("/{project_id}/logs", status_code=status.HTTP_202_ACCEPTED)
+async def request_project_logs(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Queue a diagnostic capture (container state + recent runtime logs)."""
+    _, _, Deployment, _, ProjectTarget, DeploymentTarget, _ = _import_db_models()
+
+    project = _get_project_or_404(db, project_id)
+
+    existing_running = (
+        db.query(Deployment)
+        .filter(
+            Deployment.project_id == project_id,
+            Deployment.status.in_(["queued", "running"]),
+        )
+        .first()
+    )
+    if existing_running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another task is already in progress for this project",
+        )
+
+    enabled_targets = (
+        db.query(ProjectTarget)
+        .filter(
+            ProjectTarget.project_id == project_id,
+            ProjectTarget.enabled == True,
+        )
+        .order_by(ProjectTarget.order_index.asc(), ProjectTarget.id.asc())
+        .all()
+    )
+    if not enabled_targets:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No enabled targets for this project",
+        )
+
+    deployment = Deployment(
+        project_id=project_id,
+        kind="logs",
+        status="queued",
+        trigger_source="manual",
+        triggered_by=current_user.get("username"),
+        queued_at=datetime.utcnow(),
+    )
+    db.add(deployment)
+    db.flush()
+
+    for target in enabled_targets:
+        db.add(
+            DeploymentTarget(
+                deployment_id=deployment.id,
+                project_target_id=target.id,
+                agent_id=target.agent_id,
+                status="queued",
+            )
+        )
+
+    db.commit()
+    db.refresh(deployment)
+
+    return {"ok": True, "deployment_id": deployment.id, "status": "queued"}
+
+
+@router.get("/{project_id}/logs", response_model=List[DiagnosticSnapshotSummary])
+async def list_project_logs(
+    project_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    import sys
+    import os
+
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "packages", "db"))
+    from shipsmith_db import DiagnosticSnapshot
+
+    _get_project_or_404(db, project_id)
+
+    rows = (
+        db.query(DiagnosticSnapshot)
+        .filter(DiagnosticSnapshot.project_id == project_id)
+        .order_by(DiagnosticSnapshot.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [DiagnosticSnapshotSummary.model_validate(row) for row in rows]
+
+
+@router.get("/{project_id}/logs/{snapshot_id}", response_model=DiagnosticSnapshotDetail)
+async def get_project_log_snapshot(
+    project_id: int,
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    import sys
+    import os
+
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "packages", "db"))
+    from shipsmith_db import DiagnosticSnapshot
+
+    _get_project_or_404(db, project_id)
+
+    snapshot = (
+        db.query(DiagnosticSnapshot)
+        .filter(
+            DiagnosticSnapshot.id == snapshot_id,
+            DiagnosticSnapshot.project_id == project_id,
+        )
+        .first()
+    )
+    if not snapshot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
+
+    return DiagnosticSnapshotDetail.model_validate(snapshot)

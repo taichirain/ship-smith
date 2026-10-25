@@ -61,6 +61,7 @@ import StatusBadge from '@/components/StatusBadge';
 import HealthTrendChart from '@/components/HealthTrendChart';
 import AgentPrecheckPanel from '@/components/AgentPrecheckPanel';
 import ProjectDiagnosis from '@/components/ProjectDiagnosis';
+import ProjectDiagnostics from '@/components/ProjectDiagnostics';
 import {
   api,
   Project,
@@ -1211,7 +1212,7 @@ export default function ProjectDetailPage() {
 
   const lastSuccessDeployment = deployments.find((d) => d.status === 'success');
   const lastFailedDeployment = deployments.find((d) => d.status === 'failed');
-  const latestDeployment = deployments[0];
+  const latestDeployment = deployments.find((d) => d.kind === 'deploy');
 
   if (loading) {
     return (
@@ -1530,6 +1531,8 @@ export default function ProjectDetailPage() {
               <div id="agent-precheck">
                 <AgentPrecheckPanel projectId={projectId} />
               </div>
+
+              <ProjectDiagnostics projectId={projectId} />
 
             <QuickActionsSection
               project={project}

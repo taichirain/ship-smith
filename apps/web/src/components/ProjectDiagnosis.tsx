@@ -59,7 +59,7 @@ export default function ProjectDiagnosis({
   if (!status) return null;
 
   const issues: Issue[] = [];
-  const lastDeployment = deployments[0];
+  const lastDeployment = deployments.find((deployment) => deployment.kind === 'deploy');
   const agentStale =
     !status.agent_last_seen_at ||
     Date.now() - parseApiTimestamp(status.agent_last_seen_at).getTime() > AGENT_STALE_MS;

@@ -35,6 +35,9 @@ class Settings(BaseModel):
     project_audits_retention_days: int = 90
 
     agent_offline_threshold_seconds: int = 600
+    diagnostic_snapshot_max_bytes: int = 65536
+    diagnostic_snapshot_retention_days: int = 7
+    diagnostic_snapshot_max_per_project: int = 50
     agent_monitor_interval_seconds: int = 60
     health_monitor_enabled: bool = True
 
@@ -144,6 +147,9 @@ def get_settings() -> Settings:
         flag_audits_retention_days=int(os.environ.get("FLAG_AUDITS_RETENTION_DAYS", "90")),
         project_audits_retention_days=int(os.environ.get("PROJECT_AUDITS_RETENTION_DAYS", "90")),
         agent_offline_threshold_seconds=int(os.environ.get("AGENT_OFFLINE_THRESHOLD_SECONDS", "600")),
+        diagnostic_snapshot_max_bytes=int(os.environ.get("DIAGNOSTIC_SNAPSHOT_MAX_BYTES", "65536")),
+        diagnostic_snapshot_retention_days=int(os.environ.get("DIAGNOSTIC_SNAPSHOT_RETENTION_DAYS", "7")),
+        diagnostic_snapshot_max_per_project=int(os.environ.get("DIAGNOSTIC_SNAPSHOT_MAX_PER_PROJECT", "50")),
         agent_monitor_interval_seconds=int(os.environ.get("AGENT_MONITOR_INTERVAL_SECONDS", "60")),
         health_monitor_enabled=os.environ.get("HEALTH_MONITOR_ENABLED", "true").lower() == "true",
         llm_enabled=os.environ.get("LLM_ENABLED", "false").lower() == "true",

@@ -14,8 +14,8 @@ def _import_db_models():
     import sys
     import os
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "packages", "db"))
-    from shipsmith_db import Heartbeat, DeploymentLog, WebhookDelivery, NotificationDelivery, FlagAudit, ProjectAudit
-    return Heartbeat, DeploymentLog, WebhookDelivery, NotificationDelivery, FlagAudit, ProjectAudit
+    from shipsmith_db import Heartbeat, DeploymentLog, WebhookDelivery, NotificationDelivery, FlagAudit, ProjectAudit, DiagnosticSnapshot
+    return Heartbeat, DeploymentLog, WebhookDelivery, NotificationDelivery, FlagAudit, ProjectAudit, DiagnosticSnapshot
 
 
 def cleanup_heartbeats(db: Session, retention_days: int = None) -> Dict[str, Any]:
@@ -126,6 +126,28 @@ def cleanup_project_audits(db: Session, retention_days: int = None) -> Dict[str,
     }
 
 
+def cleanup_diagnostic_snapshots(db: Session, retention_days: int = None) -> Dict[str, Any]:
+    *_, DiagnosticSnapshot = _import_db_models()
+    settings = get_settings()
+    days = retention_days if retention_days is not None else settings.diagnostic_snapshot_retention_days
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    deleted = (
+        db.query(DiagnosticSnapshot)
+        .filter(DiagnosticSnapshot.created_at < cutoff)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    logger.info(f"Cleaned up {deleted} diagnostic snapshots older than {days} days")
+    return {
+        "table": "diagnostic_snapshots",
+        "deleted_count": deleted,
+        "retention_days": days,
+        "cutoff_time": cutoff.isoformat(),
+    }
+
+
 def cleanup_all(db: Session) -> Dict[str, Any]:
     settings = get_settings()
 
@@ -138,6 +160,7 @@ def cleanup_all(db: Session) -> Dict[str, Any]:
             "notification_deliveries": settings.notification_deliveries_retention_days,
             "flag_audits": settings.flag_audits_retention_days,
             "project_audits": settings.project_audits_retention_days,
+            "diagnostic_snapshots": settings.diagnostic_snapshot_retention_days,
         },
         "cleanup_results": [],
         "total_deleted": 0,
@@ -150,6 +173,7 @@ def cleanup_all(db: Session) -> Dict[str, Any]:
         ("notification_deliveries", cleanup_notification_deliveries),
         ("flag_audits", cleanup_flag_audits),
         ("project_audits", cleanup_project_audits),
+        ("diagnostic_snapshots", cleanup_diagnostic_snapshots),
     ]
 
     for name, cleanup_func in cleanup_functions:
