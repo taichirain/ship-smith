@@ -4,8 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from shipsmith_agent.self_check import (
     _check_command_available,
+    _check_core_connectivity,
     _check_directory_writable,
     _check_docker_daemon,
+    _core_origin,
 )
 
 
@@ -155,3 +157,83 @@ def test_show_help():
     assert "ShipSmith Agent" in output
     assert "selfcheck" in output
     assert "SHIPSMITH_AGENT_TOKEN" in output
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        self.text = ""
+
+
+class _RecordingClient:
+    """Stand-in for httpx.Client that records URLs and returns fixed statuses."""
+
+    def __init__(self, statuses):
+        self._statuses = statuses
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def get(self, url, headers=None):
+        self.calls.append((url, headers or {}))
+        return _FakeResponse(self._statuses.get(url, 404))
+
+
+def test_core_origin_strips_api_prefix():
+    assert _core_origin("http://127.0.0.1:18180/api/v1") == "http://127.0.0.1:18180"
+    assert _core_origin("http://127.0.0.1:18180/api/v1/") == "http://127.0.0.1:18180"
+    assert _core_origin("http://127.0.0.1:18180/api") == "http://127.0.0.1:18180"
+    assert _core_origin("http://127.0.0.1:18180") == "http://127.0.0.1:18180"
+
+
+def test_core_connectivity_probes_origin_health_and_agent_config():
+    client = _RecordingClient(
+        {
+            "http://127.0.0.1:18180/health": 200,
+            "http://127.0.0.1:18180/api/v1/agents/config": 200,
+        }
+    )
+
+    with patch("httpx.Client", lambda *a, **k: client):
+        results = _check_core_connectivity("http://127.0.0.1:18180/api/v1", "agent-token")
+
+    urls = [url for url, _headers in client.calls]
+    assert urls == [
+        "http://127.0.0.1:18180/health",
+        "http://127.0.0.1:18180/api/v1/agents/config",
+    ]
+    assert client.calls[1][1] == {"Authorization": "Bearer agent-token"}
+    assert [r.name for r in results] == ["core_connectivity", "core_auth"]
+    assert all(r.passed for r in results)
+
+
+def test_core_connectivity_flags_an_invalid_agent_token():
+    client = _RecordingClient(
+        {
+            "http://127.0.0.1:18180/health": 200,
+            "http://127.0.0.1:18180/api/v1/agents/config": 401,
+        }
+    )
+
+    with patch("httpx.Client", lambda *a, **k: client):
+        results = _check_core_connectivity("http://127.0.0.1:18180/api/v1", "stale-token")
+
+    by_name = {r.name: r for r in results}
+    assert by_name["core_connectivity"].passed is True
+    assert by_name["core_auth"].passed is False
+    assert "Token" in by_name["core_auth"].message
+
+
+def test_core_connectivity_reports_health_failure_without_auth_probe():
+    client = _RecordingClient({"http://127.0.0.1:18180/health": 503})
+
+    with patch("httpx.Client", lambda *a, **k: client):
+        results = _check_core_connectivity("http://127.0.0.1:18180/api/v1", "agent-token")
+
+    assert len(client.calls) == 1
+    assert results[0].passed is False
+    assert "503" in results[0].message

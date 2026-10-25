@@ -254,6 +254,23 @@ def _check_docker_resources() -> List[CheckResult]:
     return results
 
 
+API_PREFIXES = ("/api/v1", "/api")
+
+
+def _core_origin(core_url: str) -> str:
+    """Return the Core origin, without the API prefix.
+
+    ``SHIPSMITH_CORE_URL`` points at the API root (``https://host/api/v1``)
+    because the client appends ``/agents/...`` to it, but ``/health`` lives on
+    the bare origin. Probing ``{core_url}/health`` therefore always 404s.
+    """
+    base = (core_url or "").rstrip("/")
+    for prefix in API_PREFIXES:
+        if base.endswith(prefix):
+            return base[: -len(prefix)]
+    return base
+
+
 def _check_core_connectivity(core_url: str, agent_token: Optional[str] = None) -> List[CheckResult]:
     results: List[CheckResult] = []
 
@@ -261,7 +278,7 @@ def _check_core_connectivity(core_url: str, agent_token: Optional[str] = None) -
         import httpx
 
         with httpx.Client(timeout=10) as client:
-            response = client.get(f"{core_url}/health")
+            response = client.get(f"{_core_origin(core_url)}/health")
             if response.status_code == 200:
                 results.append(
                     CheckResult(
@@ -287,8 +304,10 @@ def _check_core_connectivity(core_url: str, agent_token: Optional[str] = None) -
                 return results
 
             if agent_token:
+                # Agent tokens authenticate against the agent API, not the
+                # user-facing /projects endpoint.
                 response = client.get(
-                    f"{core_url}/v1/projects",
+                    f"{core_url.rstrip('/')}/agents/config",
                     headers={"Authorization": f"Bearer {agent_token}"},
                 )
                 if response.status_code == 200:
