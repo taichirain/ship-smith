@@ -573,7 +573,11 @@ class Agent:
                     app_services=task.get("app_services"),
                     compose_service=task.get("compose_service") or "app",
                     deploy_services=task.get("services"),
-                    release_tag_env=task.get("release_tag_env") or None,
+                    release_tag_env=(
+                        task.get("release_tag_env")
+                        or (self._project_config or {}).get("release_tag_env")
+                        or None
+                    ),
                 )
                 actual_commit = deploy_result.get("commit")
                 previous_commit = deploy_result.get("previous_commit")
