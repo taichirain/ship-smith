@@ -663,13 +663,21 @@ class Deployer:
         parts: List[str] = []
 
         _, ps_output = self._run_command(
-            [*self._compose_args(compose_file), "ps", "--format", "json"],
+            [
+                *self._compose_args(compose_file),
+                "ps",
+                "--format",
+                "table {{.Service}}\t{{.State}}\t{{.Status}}",
+            ],
             phase="diagnostics",
             timeout=60,
         )
         parts.append("== docker compose ps ==")
         parts.append(ps_output.strip() if ps_output.strip() else "(no containers reported)")
 
+        # Share the budget between services so one noisy container cannot
+        # consume the whole snapshot.
+        per_service = max(2048, max_bytes // max(1, len(services)))
         for service in services:
             _, logs_output = self._run_command(
                 [
@@ -684,9 +692,13 @@ class Deployer:
                 phase="diagnostics",
                 timeout=90,
             )
+            body = logs_output.rstrip() if logs_output.strip() else "(no log output)"
+            encoded_body = body.encode("utf-8")
+            if len(encoded_body) > per_service:
+                body = encoded_body[:per_service].decode("utf-8", "ignore") + "\n... [service truncated]"
             parts.append("")
             parts.append(f"== logs: {service} (last {tail} lines) ==")
-            parts.append(logs_output.rstrip() if logs_output.strip() else "(no log output)")
+            parts.append(body)
 
         content = self._redact("\n".join(parts))
         encoded = content.encode("utf-8")

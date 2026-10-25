@@ -470,6 +470,10 @@ class Agent:
             if not self.settings.workdir:
                 raise ValueError("SHIPSMITH_WORKDIR environment variable is required for deployment")
 
+            if kind == "logs":
+                self._execute_diagnostics(task_id, task)
+                return
+
             commit_hash = task.get("commit_hash")
             deploy_strategy = task.get("deploy_strategy", "compose-build")
             healthcheck_url = task.get("healthcheck_url")
@@ -510,10 +514,6 @@ class Agent:
 
             if not self.client.start_task(task_id):
                 logger.error(f"Failed to start task {task_id}")
-                return
-
-            if kind == "logs":
-                self._execute_diagnostics(task_id, task, deployer)
                 return
 
             if kind in ("service_stop", "service_start"):
