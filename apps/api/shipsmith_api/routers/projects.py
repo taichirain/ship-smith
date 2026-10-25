@@ -472,7 +472,10 @@ async def list_projects(
         project_ids = [p.id for p in projects]
         all_deployments = (
             db.query(Deployment)
-            .filter(Deployment.project_id.in_(project_ids))
+            .filter(
+                Deployment.project_id.in_(project_ids),
+                Deployment.kind.in_(("deploy", "rollback")),
+            )
             .order_by(
                 Deployment.project_id,
                 Deployment.queued_at.desc(),

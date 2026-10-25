@@ -133,7 +133,10 @@ def _get_anomaly_projects(db: Session) -> List[AnomalyProject]:
 
         last_deployment = (
             db.query(Deployment)
-            .filter(Deployment.project_id == project.id)
+            .filter(
+                Deployment.project_id == project.id,
+                Deployment.kind.in_(("deploy", "rollback")),
+            )
             .order_by(desc(Deployment.queued_at))
             .first()
         )
