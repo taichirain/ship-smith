@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowRight, CheckCircle, GitBranch, Package, Power, RefreshCw, Server, XCircle, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle, GitBranch, Package, Power, RefreshCw, Server, Sparkles, XCircle } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import LoginForm from '@/components/LoginForm';
 import StatusBadge from '@/components/StatusBadge';
-import { api, getToken, DashboardSummaryResponse, AlertListResponse } from '@/lib/api';
+import { api, getToken, DashboardSummaryResponse, AlertListResponse, Project } from '@/lib/api';
 import { parseApiTimestamp } from '@/lib/datetime';
 
 const PREVIEW_COUNT = 3;
+const FLEET_LIMIT = 8;
 
 function relativeTime(value: string | null): string {
   if (!value) return 'N/A';
@@ -23,9 +24,16 @@ function relativeTime(value: string | null): string {
   return days < 7 ? `${days}d ago` : parseApiTimestamp(value).toLocaleDateString();
 }
 
+const DEPLOY_TONES: Record<string, string> = {
+  success: 'text-emerald-600',
+  failed: 'text-red-600',
+  running: 'text-blue-600',
+  queued: 'text-yellow-600',
+};
+
 function SummaryCards({ summary }: { summary: DashboardSummaryResponse['summary'] }) {
-  // Eight counters, one row on wide screens. Every one is a drill-down entry
-  // point: the project list understands the health_status query param.
+  // Six counters, one comfortable row on wide screens. Every one is a
+  // drill-down entry point: the project list understands health_status.
   const cards = [
     { label: 'Total Projects', value: summary.total_projects, icon: Package, color: 'text-blue-600 bg-blue-50', href: '/projects' },
     { label: 'Healthy', value: summary.healthy_projects, icon: CheckCircle, color: 'text-green-600 bg-green-50', href: '/projects?health_status=healthy' },
@@ -33,15 +41,13 @@ function SummaryCards({ summary }: { summary: DashboardSummaryResponse['summary'
     { label: 'Unhealthy', value: summary.unhealthy_projects, icon: XCircle, color: 'text-red-600 bg-red-50', href: '/projects?health_status=unhealthy' },
     { label: 'Agent Offline', value: summary.offline_projects, icon: Server, color: 'text-orange-600 bg-orange-50', href: '/projects?health_status=offline' },
     { label: 'Stopped', value: summary.stopped_projects, icon: Power, color: 'text-gray-600 bg-gray-100', href: '/projects?health_status=stopped' },
-    { label: '24h Success', value: summary.last_24h_deployments_success, icon: Sparkles, color: 'text-emerald-600 bg-emerald-50', href: '/activity/changes' },
-    { label: '24h Failed', value: summary.last_24h_deployments_failed, icon: XCircle, color: 'text-red-600 bg-red-50', href: '/activity/changes' },
   ];
-  return <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-8">
-    {cards.map(({ label, value, icon: Icon, color, href }) => <Link key={label} href={href} title={`View ${label.toLowerCase()}`} className="card flex min-w-0 items-center gap-2.5 p-3 transition hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
-      <span className={`shrink-0 rounded-md p-1.5 ${color}`}><Icon className="h-4 w-4" /></span>
+  return <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+    {cards.map(({ label, value, icon: Icon, color, href }) => <Link key={label} href={href} title={`View ${label.toLowerCase()}`} className="card flex items-center gap-3 p-4 transition hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+      <span className={`shrink-0 rounded-lg p-2 ${color}`}><Icon className="h-5 w-5" /></span>
       <div className="min-w-0">
-        <p className="truncate text-[11px] leading-4 text-gray-500">{label}</p>
-        <p className="text-xl font-semibold leading-6 text-gray-900">{value}</p>
+        <p className="truncate text-xs text-gray-500">{label}</p>
+        <p className="text-2xl font-semibold text-gray-900">{value}</p>
       </div>
     </Link>)}
   </div>;
@@ -67,21 +73,98 @@ function EmptyPreview({ text }: { text: string }) {
   return <div className="flex h-60 items-center justify-center px-4 text-center text-sm text-gray-500">{text}</div>;
 }
 
+function FleetPanel({ projects }: { projects: Project[] }) {
+  const visible = projects.slice(0, FLEET_LIMIT);
+  return <section className="card flex min-w-0 flex-col overflow-hidden lg:col-span-2">
+    <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4">
+      <Package className="h-5 w-5 text-primary-600" />
+      <h2 className="min-w-0 flex-1 truncate font-semibold text-gray-900">Projects</h2>
+      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{projects.length}</span>
+    </div>
+    <div className="flex-1 overflow-x-auto">
+      {visible.length === 0 ? <div className="px-4 py-10 text-center text-sm text-gray-500">No projects yet</div> : <table className="w-full min-w-[36rem] text-sm">
+        <thead>
+          <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
+            <th className="px-4 py-2 font-medium">Project</th>
+            <th className="px-4 py-2 font-medium">Health</th>
+            <th className="px-4 py-2 font-medium">Last deploy</th>
+            <th className="px-4 py-2 font-medium">Heartbeat</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {visible.map(project => <tr key={project.id} className="hover:bg-gray-50">
+            <td className="px-4 py-3">
+              <Link href={`/projects/${project.id}`} className="font-medium text-gray-900 hover:text-primary-700">{project.name}</Link>
+              <p className="text-xs capitalize text-gray-500">{project.environment || 'no environment'}</p>
+            </td>
+            <td className="px-4 py-3"><StatusBadge status={project.health_status || 'unknown'} small /></td>
+            <td className="px-4 py-3 text-xs">
+              {project.last_deployment_status
+                ? <span className={DEPLOY_TONES[project.last_deployment_status] || 'text-gray-600'}>{project.last_deployment_status} · {relativeTime(project.last_deployment_at ?? null)}</span>
+                : <span className="text-gray-400">never</span>}
+            </td>
+            <td className="px-4 py-3 text-xs text-gray-600">
+              {project.agent_last_seen_at ? relativeTime(project.agent_last_seen_at) : <span className="text-gray-400">never</span>}
+            </td>
+          </tr>)}
+        </tbody>
+      </table>}
+    </div>
+    <Link href="/projects" className="flex items-center justify-between border-t border-gray-100 px-4 py-3 text-sm font-medium text-primary-700 hover:bg-primary-50">
+      <span>View all projects</span><ArrowRight className="h-4 w-4" />
+    </Link>
+  </section>;
+}
+
+function DeploymentActivity({ summary }: { summary: DashboardSummaryResponse['summary'] }) {
+  const success = summary.last_24h_deployments_success;
+  const failed = summary.last_24h_deployments_failed;
+  const total = success + failed;
+  const rate = total === 0 ? null : Math.round((success / total) * 100);
+  return <section className="card flex min-w-0 flex-col overflow-hidden">
+    <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4">
+      <Sparkles className="h-5 w-5 text-emerald-600" />
+      <h2 className="min-w-0 flex-1 truncate font-semibold text-gray-900">Deployment activity</h2>
+      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">24h</span>
+    </div>
+    <div className="flex-1 space-y-5 px-4 py-5">
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div><p className="text-2xl font-semibold text-emerald-600">{success}</p><p className="text-xs text-gray-500">Succeeded</p></div>
+        <div><p className="text-2xl font-semibold text-red-600">{failed}</p><p className="text-xs text-gray-500">Failed</p></div>
+        <div><p className="text-2xl font-semibold text-gray-900">{rate === null ? '—' : `${rate}%`}</p><p className="text-xs text-gray-500">Success rate</p></div>
+      </div>
+      <div>
+        <div className="flex h-2 w-full overflow-hidden rounded-full bg-gray-100">
+          <div className="h-full bg-emerald-500" style={{ width: `${rate ?? 0}%` }} />
+          <div className="h-full bg-red-400" style={{ width: `${total === 0 ? 0 : 100 - (rate ?? 0)}%` }} />
+        </div>
+        <p className="mt-2 text-xs text-gray-500">{total === 0 ? 'No deployments in the last 24 hours' : `${success} of ${total} deployments succeeded`}</p>
+      </div>
+    </div>
+    <Link href="/activity/changes" className="flex items-center justify-between border-t border-gray-100 px-4 py-3 text-sm font-medium text-primary-700 hover:bg-primary-50">
+      <span>View deployment history</span><ArrowRight className="h-4 w-4" />
+    </Link>
+  </section>;
+}
+
 function DashboardPage() {
   const [data, setData] = useState<DashboardSummaryResponse | null>(null);
   const [alerts, setAlerts] = useState<AlertListResponse | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [summary, alertList] = await Promise.all([
+      const [summary, alertList, projectList] = await Promise.all([
         api.getDashboardSummary(),
         api.listAlerts({ status: ['open'], limit: PREVIEW_COUNT }),
+        api.listProjects({ sort_by: 'health_status_priority', sort_order: 'asc' }),
       ]);
       setData(summary);
       setAlerts(alertList);
+      setProjects(projectList);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
@@ -94,7 +177,7 @@ function DashboardPage() {
 
   return <AppLayout><div className="mx-auto max-w-[1500px] p-5 md:p-8">
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div><h1 className="text-2xl font-bold text-gray-900">Dashboard</h1><p className="mt-1 text-sm text-gray-500">What needs attention and what changed recently</p></div>
+      <div><h1 className="text-2xl font-bold text-gray-900">Dashboard</h1><p className="mt-1 text-sm text-gray-500">Fleet health, what needs attention, and what changed recently</p></div>
       <button onClick={refresh} disabled={loading} className="btn btn-secondary gap-2"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
     </div>
     {error && <div className="mb-5 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -122,6 +205,10 @@ function DashboardPage() {
               <p className="mt-1 truncate text-xs text-gray-500">{alert.project_name || `Project #${alert.project_id}`} · {relativeTime(alert.last_seen_at)}</p>
             </Link>)}
         </OverviewPanel>
+      </div>
+      <div className="grid items-stretch gap-4 lg:grid-cols-3">
+        <FleetPanel projects={projects} />
+        <DeploymentActivity summary={data.summary} />
       </div>
     </div>}
   </div></AppLayout>;
