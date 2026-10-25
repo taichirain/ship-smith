@@ -823,6 +823,7 @@ class Deployer:
         command: Optional[str],
         timeout: int = 600,
         no_deps: bool = True,
+        env: Optional[Dict[str, str]] = None,
     ) -> None:
         if not command or not command.strip():
             return
@@ -847,7 +848,7 @@ class Deployer:
             cmd.append("--no-deps")
         cmd.extend([service.strip(), *extra_args])
 
-        code, _ = self._run_command(cmd, phase="migration", timeout=timeout)
+        code, _ = self._run_command(cmd, phase="migration", timeout=timeout, env=env)
         if code != 0:
             raise DeployError("migration_failed", "database migration failed")
 
@@ -992,6 +993,7 @@ class Deployer:
                     command=migration_command,
                     timeout=migration_timeout_seconds,
                     no_deps=migration_no_deps,
+                    env=compose_env,
                 )
 
             self.docker_compose_up(compose_file, services=target_services, env=compose_env)
