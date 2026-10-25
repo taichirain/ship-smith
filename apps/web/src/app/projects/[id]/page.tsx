@@ -540,6 +540,7 @@ export default function ProjectDetailPage() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [showAllDeployments, setShowAllDeployments] = useState(false);
   const [activityTab, setActivityTab] = useState<'deployments' | 'events'>('deployments');
+  const [showSetup, setShowSetup] = useState(false);
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -575,6 +576,7 @@ export default function ProjectDetailPage() {
   const [timelineTotal, setTimelineTotal] = useState(0);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineFilter, setTimelineFilter] = useState<TimelineEventType | null>(null);
+  const [timelineLimit, setTimelineLimit] = useState(50);
 
   const [notificationChannels, setNotificationChannels] = useState<NotificationChannel[]>([]);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSetting[]>([]);
@@ -682,7 +684,7 @@ export default function ProjectDetailPage() {
     try {
       setTimelineLoading(true);
       const data = await api.getProjectTimeline(projectId, {
-        limit: 50,
+        limit: timelineLimit,
         event_type: timelineFilter || undefined,
       });
       setTimelineEvents(data.events);
@@ -692,7 +694,25 @@ export default function ProjectDetailPage() {
     } finally {
       setTimelineLoading(false);
     }
-  }, [projectId, timelineFilter]);
+  }, [projectId, timelineFilter, timelineLimit]);
+
+  const refreshActivity = useCallback(async () => {
+    // Silent refresh: never touch the loading flags, otherwise the page flickers.
+    try {
+      const [deploymentsData, timelineData] = await Promise.all([
+        api.listDeployments(projectId),
+        api.getProjectTimeline(projectId, {
+          limit: timelineLimit,
+          event_type: timelineFilter || undefined,
+        }),
+      ]);
+      setDeployments(deploymentsData);
+      setTimelineEvents(timelineData.events);
+      setTimelineTotal(timelineData.total);
+    } catch (err) {
+      // Keep whatever is already on screen.
+    }
+  }, [projectId, timelineFilter, timelineLimit]);
 
   const loadTargets = useCallback(async () => {
     try {
@@ -821,9 +841,10 @@ export default function ProjectDetailPage() {
     const interval = setInterval(() => {
       loadStatus();
       loadOnboarding();
+      refreshActivity();
     }, 10000);
     return () => clearInterval(interval);
-  }, [loadStatus, loadOnboarding]);
+  }, [loadStatus, loadOnboarding, refreshActivity]);
 
   async function handleStopProject() {
     if (!project) return;
@@ -1190,6 +1211,7 @@ export default function ProjectDetailPage() {
 
   const lastSuccessDeployment = deployments.find((d) => d.status === 'success');
   const lastFailedDeployment = deployments.find((d) => d.status === 'failed');
+  const latestDeployment = deployments[0];
 
   if (loading) {
     return (
@@ -1265,7 +1287,7 @@ export default function ProjectDetailPage() {
                 <Play className="w-4 h-4 mr-2" />
                 {deploying ? 'Deploying...' : 'Deploy'}
               </button>
-              {lastFailedDeployment && (
+              {latestDeployment?.status === 'failed' && (
                 <button
                   onClick={handleRetryLastFailed}
                   disabled={deploying}
@@ -1424,9 +1446,9 @@ export default function ProjectDetailPage() {
                                 <p className="font-medium mb-1">升级步骤：</p>
                                 <ol className="list-decimal list-inside space-y-0.5">
                                   <li>SSH 登录到部署服务器</li>
-                                  <li>停止 Agent 服务：<code className="bg-orange-100 px-1 rounded">systemctl stop shipsmith-agent</code></li>
+                                  <li>停止 Agent 服务：<code className="bg-orange-100 px-1 rounded">systemctl --user stop shipsmith-agent@&lt;实例名&gt;</code></li>
                                   <li>更新 pip 包：<code className="bg-orange-100 px-1 rounded">pip install --upgrade shipsmith-agent</code></li>
-                                  <li>重新启动服务：<code className="bg-orange-100 px-1 rounded">systemctl start shipsmith-agent</code></li>
+                                  <li>重新启动服务：<code className="bg-orange-100 px-1 rounded">systemctl --user start shipsmith-agent@&lt;实例名&gt;</code></li>
                                 </ol>
                               </div>
                             </div>
@@ -1518,7 +1540,23 @@ export default function ProjectDetailPage() {
               copiedKey={copiedItem}
             />
 
-            <div>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-gray-900">部署配置与安装信息</p>
+                <p className="text-xs text-gray-500">
+                  Project configuration · Agent configuration · Targets · Onboarding · Bootstrap · Webhook
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSetup((current) => !current)}
+                className="btn btn-secondary text-xs"
+              >
+                {showSetup ? '收起' : '展开'}
+                <ChevronDown className={`ml-1 h-3 w-3 transition-transform ${showSetup ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
+            <div className={showSetup ? '' : 'hidden'}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <Settings className="w-5 h-5" />
@@ -1680,7 +1718,7 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            <div>
+            <div className={showSetup ? '' : 'hidden'}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <Key className="w-5 h-5" />
@@ -1739,7 +1777,7 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            <div>
+            <div className={showSetup ? '' : 'hidden'}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <Server className="w-5 h-5" />
@@ -1914,7 +1952,7 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            <div>
+            <div className={showSetup ? '' : 'hidden'}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <Rocket className="w-5 h-5" />
@@ -2066,7 +2104,7 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            <div>
+            <div className={showSetup ? '' : 'hidden'}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <Terminal className="w-5 h-5" />
@@ -2173,7 +2211,7 @@ flags_sync_interval_seconds: 30`}
               </div>
             </div>
 
-            <div>
+            <div className={showSetup ? '' : 'hidden'}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <Webhook className="w-5 h-5" />
@@ -2583,50 +2621,35 @@ flags_sync_interval_seconds: 30`}
                   <History className="w-5 h-5" />
                   Activity
                 </h2>
-                <div className="flex items-center gap-2">
-                  <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setActivityTab('deployments')}
-                      className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                        activityTab === 'deployments'
-                          ? 'bg-white text-gray-900 shadow-sm'
-                          : 'text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      Deployments{deployments.length > 0 ? ` (${deployments.length})` : ''}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActivityTab('events')}
-                      className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                        activityTab === 'events'
-                          ? 'bg-white text-gray-900 shadow-sm'
-                          : 'text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      Events
-                    </button>
-                  </div>
-                  {activityTab === 'events' && (
-                    <select
-                      value={timelineFilter ?? ''}
-                      onChange={(event) => setTimelineFilter((event.target.value || null) as TimelineEventType | null)}
-                      aria-label="Filter events"
-                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700"
-                    >
-                      {TIMELINE_FILTER_OPTIONS.map((option) => (
-                        <option key={String(option.value)} value={option.value ?? ''}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setActivityTab('deployments')}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      activityTab === 'deployments'
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Deployments{deployments.length > 0 ? ` (${deployments.length})` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivityTab('events')}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      activityTab === 'events'
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Events
+                  </button>
                 </div>
               </div>
 
-              {activityTab === 'deployments' ? (
-                deployments.length === 0 ? (
+              {/* Both panels stay mounted: switching tabs must not remount or reflow. */}
+              <div className={activityTab === 'deployments' ? '' : 'hidden'}>
+                {deployments.length === 0 ? (
                   <div className="card p-8 text-center">
                     <Clock className="w-10 h-10 text-gray-400 mx-auto mb-3" />
                     <p className="text-gray-600">No deployments yet.</p>
@@ -2677,7 +2700,7 @@ flags_sync_interval_seconds: 30`}
                         </div>
                       )}
                     </Link>
-                      ))}
+                                            ))}
                     </div>
                     {deployments.length > 5 && (
                       <button
@@ -2689,33 +2712,59 @@ flags_sync_interval_seconds: 30`}
                       </button>
                     )}
                   </>
-                )
-              ) : timelineLoading ? (
-                <div className="card p-8 text-center">
-                  <Loader2 className="w-8 h-8 text-gray-400 mx-auto animate-spin" />
-                  <p className="text-gray-500 mt-2">Loading timeline...</p>
-                </div>
-              ) : timelineEvents.length === 0 ? (
-                <div className="card p-8 text-center">
-                  <History className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">
-                    {timelineFilter ? 'No matching events' : 'No events yet'}
-                  </p>
-                </div>
-              ) : (
-                <div className="mt-2">
-                  {timelineEvents.slice(0, 20).map((event) => (
-                    <TimelineEventItem key={event.id} event={event} />
-                  ))}
-                  {timelineTotal > 20 && (
-                    <div className="text-center text-sm text-gray-500 pt-2">
-                      Showing 20 of {timelineTotal} events
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
+              <div className={activityTab === 'events' ? '' : 'hidden'}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs text-gray-500">
+                    Showing {timelineEvents.length} of {timelineTotal} events
+                  </span>
+                  <select
+                    value={timelineFilter ?? ''}
+                    onChange={(event) => setTimelineFilter((event.target.value || null) as TimelineEventType | null)}
+                    aria-label="Filter events"
+                    className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700"
+                  >
+                    {TIMELINE_FILTER_OPTIONS.map((option) => (
+                      <option key={String(option.value)} value={option.value ?? ''}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {timelineLoading ? (
+                  <div className="card p-8 text-center">
+                    <Loader2 className="w-8 h-8 text-gray-400 mx-auto animate-spin" />
+                    <p className="text-gray-500 mt-2">Loading timeline...</p>
+                  </div>
+                ) : timelineEvents.length === 0 ? (
+                  <div className="card p-8 text-center">
+                    <History className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+                    <p className="text-gray-600">
+                      {timelineFilter ? 'No matching events' : 'No events yet'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    {timelineEvents.map((event) => (
+                      <TimelineEventItem key={event.id} event={event} />
+                    ))}
+                    {timelineEvents.length < timelineTotal && (
+                      <div className="pt-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setTimelineLimit((current) => current + 50)}
+                          className="text-sm font-medium text-primary-700 hover:underline"
+                        >
+                          Load more events
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
