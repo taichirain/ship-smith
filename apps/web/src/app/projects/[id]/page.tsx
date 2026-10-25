@@ -60,6 +60,7 @@ import AppLayout from '@/components/AppLayout';
 import StatusBadge from '@/components/StatusBadge';
 import HealthTrendChart from '@/components/HealthTrendChart';
 import AgentPrecheckPanel from '@/components/AgentPrecheckPanel';
+import ProjectDiagnosis from '@/components/ProjectDiagnosis';
 import {
   api,
   Project,
@@ -538,6 +539,7 @@ export default function ProjectDetailPage() {
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [showAllDeployments, setShowAllDeployments] = useState(false);
+  const [activityTab, setActivityTab] = useState<'deployments' | 'events'>('deployments');
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -573,7 +575,6 @@ export default function ProjectDetailPage() {
   const [timelineTotal, setTimelineTotal] = useState(0);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineFilter, setTimelineFilter] = useState<TimelineEventType | null>(null);
-  const [showTimelineFilter, setShowTimelineFilter] = useState(false);
 
   const [notificationChannels, setNotificationChannels] = useState<NotificationChannel[]>([]);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSetting[]>([]);
@@ -1295,6 +1296,13 @@ export default function ProjectDetailPage() {
           </div>
         )}
 
+        <ProjectDiagnosis
+          projectId={projectId}
+          status={projectStatus}
+          deployments={deployments}
+          healthcheckUrl={project.healthcheck_url}
+        />
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-8">
             {projectStatus && (
@@ -1497,6 +1505,9 @@ export default function ProjectDetailPage() {
               loading={healthHistoryLoading}
               onTimeRangeChange={handleTimeRangeChange}
             />
+              <div id="agent-precheck">
+                <AgentPrecheckPanel projectId={projectId} />
+              </div>
 
             <QuickActionsSection
               project={project}
@@ -2055,8 +2066,6 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            <AgentPrecheckPanel projectId={projectId} />
-
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -2251,76 +2260,6 @@ flags_sync_interval_seconds: 30`}
           </div>
 
           <div className="space-y-8">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Deploy History
-                </h2>
-                {deployments.length > 5 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllDeployments((current) => !current)}
-                    className="text-sm text-blue-600 hover:text-blue-700"
-                  >
-                    {showAllDeployments ? 'Show less' : `Show more (${deployments.length - 5})`}
-                  </button>
-                )}
-              </div>
-
-              {deployments.length === 0 ? (
-                <div className="card p-8 text-center">
-                  <Clock className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">No deployments yet.</p>
-                </div>
-              ) : (
-                <div className="card divide-y divide-gray-100 overflow-hidden">
-                  {(showAllDeployments ? deployments : deployments.slice(0, 5)).map((deployment) => (
-                    <Link
-                      key={deployment.id}
-                      href={`/deployments/${deployment.id}`}
-                      className="block px-4 py-3 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <StatusBadge
-                            status={deployment.status}
-                            small
-                          />
-                          <span className="text-sm font-medium text-gray-900">
-                            #{deployment.id}
-                          </span>
-                          <span className="text-xs text-gray-500 uppercase">
-                            {deployment.kind}
-                          </span>
-                        </div>
-                        <span className="text-xs text-gray-500">
-                          {formatDate(deployment.queued_at)}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
-                        {deployment.commit_hash && (
-                          <span className="flex items-center gap-1">
-                            <GitCommit className="w-3 h-3" />
-                            {deployment.commit_hash.substring(0, 8)}
-                          </span>
-                        )}
-                        {deployment.triggered_by && (
-                          <span className="flex items-center gap-1">
-                            <User className="w-3 h-3" />
-                            {deployment.triggered_by}
-                          </span>
-                        )}
-                      </div>
-                      {deployment.failure_phase && (
-                        <div className="mt-2 text-xs text-red-600">
-                          Failed at: {deployment.failure_phase}
-                        </div>
-                      )}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
 
             <div>
               <div className="flex items-center justify-between mb-4">
@@ -2642,48 +2581,116 @@ flags_sync_interval_seconds: 30`}
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <History className="w-5 h-5" />
-                  Timeline
+                  Activity
                 </h2>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowTimelineFilter(!showTimelineFilter)}
-                    className="btn btn-secondary text-sm flex items-center gap-2"
-                  >
-                    <Filter className="w-4 h-4" />
-                    {timelineFilter
-                      ? TIMELINE_FILTER_OPTIONS.find(o => o.value === timelineFilter)?.label || 'Filter'
-                      : 'All Events'}
-                    <ChevronDown className="w-4 h-4" />
-                  </button>
-                  
-                  {showTimelineFilter && (
-                    <>
-                      <div 
-                        className="fixed inset-0 z-10" 
-                        onClick={() => setShowTimelineFilter(false)}
-                      />
-                      <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-20 min-w-[200px] max-h-[400px] overflow-y-auto">
-                        {TIMELINE_FILTER_OPTIONS.map((option) => (
-                          <button
-                            key={String(option.value)}
-                            onClick={() => {
-                              setTimelineFilter(option.value);
-                              setShowTimelineFilter(false);
-                            }}
-                            className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${
-                              timelineFilter === option.value ? 'text-primary-700 bg-primary-50 font-medium' : 'text-gray-700'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setActivityTab('deployments')}
+                      className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                        activityTab === 'deployments'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      Deployments{deployments.length > 0 ? ` (${deployments.length})` : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActivityTab('events')}
+                      className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                        activityTab === 'events'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      Events
+                    </button>
+                  </div>
+                  {activityTab === 'events' && (
+                    <select
+                      value={timelineFilter ?? ''}
+                      onChange={(event) => setTimelineFilter((event.target.value || null) as TimelineEventType | null)}
+                      aria-label="Filter events"
+                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700"
+                    >
+                      {TIMELINE_FILTER_OPTIONS.map((option) => (
+                        <option key={String(option.value)} value={option.value ?? ''}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   )}
                 </div>
               </div>
 
-              {timelineLoading ? (
+              {activityTab === 'deployments' ? (
+                deployments.length === 0 ? (
+                  <div className="card p-8 text-center">
+                    <Clock className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+                    <p className="text-gray-600">No deployments yet.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="card divide-y divide-gray-100 overflow-hidden">
+                      {(showAllDeployments ? deployments : deployments.slice(0, 5)).map((deployment) => (
+                    <Link
+                      key={deployment.id}
+                      href={`/deployments/${deployment.id}`}
+                      className="block px-4 py-3 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <StatusBadge
+                            status={deployment.status}
+                            small
+                          />
+                          <span className="text-sm font-medium text-gray-900">
+                            #{deployment.id}
+                          </span>
+                          <span className="text-xs text-gray-500 uppercase">
+                            {deployment.kind}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          {formatDate(deployment.queued_at)}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+                        {deployment.commit_hash && (
+                          <span className="flex items-center gap-1">
+                            <GitCommit className="w-3 h-3" />
+                            {deployment.commit_hash.substring(0, 8)}
+                          </span>
+                        )}
+                        {deployment.triggered_by && (
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            {deployment.triggered_by}
+                          </span>
+                        )}
+                      </div>
+                      {deployment.failure_phase && (
+                        <div className="mt-2 text-xs text-red-600">
+                          Failed at: {deployment.failure_phase}
+                        </div>
+                      )}
+                    </Link>
+                      ))}
+                    </div>
+                    {deployments.length > 5 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllDeployments((current) => !current)}
+                        className="mt-3 text-sm text-blue-600 hover:text-blue-700"
+                      >
+                        {showAllDeployments ? 'Show less' : `Show all ${deployments.length} deployments`}
+                      </button>
+                    )}
+                  </>
+                )
+              ) : timelineLoading ? (
                 <div className="card p-8 text-center">
                   <Loader2 className="w-8 h-8 text-gray-400 mx-auto animate-spin" />
                   <p className="text-gray-500 mt-2">Loading timeline...</p>
