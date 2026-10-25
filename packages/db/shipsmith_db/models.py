@@ -95,6 +95,8 @@ class Deployment(Base):
     status = Column(String(32), nullable=False, default="queued")
     deploy_mode = Column(String(32), nullable=False, default="all-at-once")
     requested_services = Column(JSON)
+    effective_services = Column(JSON)
+    effective_service_scope = Column(String(16))
     trigger_source = Column(String(16), nullable=False, default="manual")
     commit_hash = Column(String(40))
     previous_commit_hash = Column(String(64))

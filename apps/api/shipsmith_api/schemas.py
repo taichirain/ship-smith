@@ -344,6 +344,8 @@ class DeploymentResponse(BaseModel):
     failure_phase: Optional[str] = None
     last_heartbeat_at: Optional[datetime] = None
     requested_services: Optional[List[str]] = None
+    effective_services: Optional[List[str]] = None
+    effective_service_scope: Optional[str] = None
 
     class Config:
         from_attributes = True

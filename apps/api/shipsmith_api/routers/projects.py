@@ -77,6 +77,21 @@ def _is_version_outdated(agent_version: Optional[str], api_version: str) -> bool
     return agent_parts < api_parts
 
 
+def _rollback_service_snapshot(project, target_deployment):
+    """Which services a rollback should replay.
+
+    Prefer the snapshot recorded on the target deployment, so a rollback is
+    not affected by later service renames. Legacy deployments without a
+    snapshot fall back to the project's current configuration.
+    """
+    snapshot = getattr(target_deployment, "effective_services", None)
+    if snapshot is None:
+        if project.service_scope == "app":
+            return list(project.app_services or []), "app"
+        return [], "all"
+    return list(snapshot), (target_deployment.effective_service_scope or project.service_scope)
+
+
 def _import_db_models():
     import sys
     import os
@@ -1113,6 +1128,13 @@ async def deploy_project(
     )
     if requested_services:
         deployment.requested_services = requested_services
+    deployment.effective_service_scope = project.service_scope
+    if requested_services:
+        deployment.effective_services = list(requested_services)
+    elif project.service_scope == "app":
+        deployment.effective_services = list(project.app_services or [])
+    else:
+        deployment.effective_services = []
     db.add(deployment)
     db.flush()
 
@@ -1316,6 +1338,8 @@ async def rollback_project(
             detail="No enabled targets for this project",
         )
 
+    rollback_services, rollback_scope = _rollback_service_snapshot(project, target_deployment)
+
     rollback_deployment = Deployment(
         project_id=project_id,
         kind="rollback",
@@ -1326,6 +1350,9 @@ async def rollback_project(
         target_deployment_id=data.target_deployment_id,
         triggered_by=current_user.get("username"),
         queued_at=datetime.utcnow(),
+        requested_services=rollback_services or None,
+        effective_services=rollback_services,
+        effective_service_scope=rollback_scope,
     )
     db.add(rollback_deployment)
     db.flush()
@@ -1400,6 +1427,8 @@ async def rollback_to_last_success(
             detail="No enabled targets for this project",
         )
 
+    rollback_services, rollback_scope = _rollback_service_snapshot(project, last_success)
+
     rollback_deployment = Deployment(
         project_id=project_id,
         kind="rollback",
@@ -1410,6 +1439,9 @@ async def rollback_to_last_success(
         target_deployment_id=last_success.id,
         triggered_by=current_user.get("username"),
         queued_at=datetime.utcnow(),
+        requested_services=rollback_services or None,
+        effective_services=rollback_services,
+        effective_service_scope=rollback_scope,
     )
     db.add(rollback_deployment)
     db.flush()
