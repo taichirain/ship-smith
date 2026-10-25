@@ -372,6 +372,7 @@ class DeployRequest(BaseModel):
     commit_hash: Optional[str] = None
     trigger_source: str = Field(default="manual")
     deploy_mode: str = Field(default="all-at-once")
+    services: Optional[List[str]] = None
 
 
 class RollbackRequest(BaseModel):

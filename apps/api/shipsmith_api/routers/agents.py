@@ -180,6 +180,7 @@ async def poll_task(
             "build_timeout_seconds": project.build_timeout_seconds if project else 1800,
             "pull_timeout_seconds": project.pull_timeout_seconds if project else 900,
             "build_no_cache": project.build_no_cache if project else False,
+            "services": deployment.requested_services or None,
             "service_scope": project.service_scope if project else "app",
             "app_services": project.app_services if project else [],
             "pre_deploy_command": project.pre_deploy_command if project else None,

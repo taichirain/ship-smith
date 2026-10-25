@@ -844,12 +844,19 @@ class Deployer:
         service_scope: str = "all",
         app_services: Optional[List[str]] = None,
         compose_service: str = "app",
+        deploy_services: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         if project_id is not None:
             self.project_id = project_id
         if compose_profiles is not None:
             self.compose_profiles = [str(p) for p in compose_profiles if str(p).strip()]
-        target_services = self.resolve_services(service_scope, app_services, compose_service)
+        explicit_services = [service for service in (deploy_services or []) if service]
+        if explicit_services:
+            # A partial deploy (for example web only) bypasses the project-level
+            # service list and never runs migrations.
+            target_services = explicit_services
+        else:
+            target_services = self.resolve_services(service_scope, app_services, compose_service)
 
         self.log_collector.info("git_fetch", "Starting deployment...")
         auth = self.ensure_repo(
@@ -904,13 +911,14 @@ class Deployer:
                     f"Unsupported deploy strategy: {strategy}",
                 )
 
-            self.run_migration(
-                compose_file=compose_file,
-                service=migration_service,
-                command=migration_command,
-                timeout=migration_timeout_seconds,
-                no_deps=migration_no_deps,
-            )
+            if not explicit_services:
+                self.run_migration(
+                    compose_file=compose_file,
+                    service=migration_service,
+                    command=migration_command,
+                    timeout=migration_timeout_seconds,
+                    no_deps=migration_no_deps,
+                )
 
             self.docker_compose_up(compose_file, services=target_services)
             self.run_post_deploy(post_deploy)

@@ -572,6 +572,7 @@ class Agent:
                     service_scope=task.get("service_scope", "app"),
                     app_services=task.get("app_services"),
                     compose_service=task.get("compose_service") or "app",
+                    deploy_services=task.get("services"),
                 )
                 actual_commit = deploy_result.get("commit")
                 previous_commit = deploy_result.get("previous_commit")

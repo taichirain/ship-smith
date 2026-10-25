@@ -1087,6 +1087,19 @@ async def deploy_project(
             detail="Invalid deploy_mode. Must be 'all-at-once' or 'rolling'",
         )
 
+    requested_services = [service.strip() for service in (data.services or []) if service.strip()]
+    if requested_services:
+        if len(requested_services) != len(set(requested_services)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="services must be unique",
+            )
+        if project.service_scope == "app" and not set(requested_services) <= set(project.app_services or []):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="services must be a subset of app_services for app scope",
+            )
+
     deployment = Deployment(
         project_id=project_id,
         kind="deploy",
@@ -1097,6 +1110,8 @@ async def deploy_project(
         triggered_by=current_user.get("username"),
         queued_at=datetime.utcnow(),
     )
+    if requested_services:
+        deployment.requested_services = requested_services
     db.add(deployment)
     db.flush()
 

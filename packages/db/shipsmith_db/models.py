@@ -93,6 +93,7 @@ class Deployment(Base):
     kind = Column(String(16), nullable=False)
     status = Column(String(32), nullable=False, default="queued")
     deploy_mode = Column(String(32), nullable=False, default="all-at-once")
+    requested_services = Column(JSON)
     trigger_source = Column(String(16), nullable=False, default="manual")
     commit_hash = Column(String(40))
     previous_commit_hash = Column(String(64))
