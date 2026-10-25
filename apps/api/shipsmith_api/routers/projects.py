@@ -1436,10 +1436,7 @@ async def trigger_precheck(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    import sys
-    import os
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "packages", "db"))
-    from shipsmith_db import Deployment
+    _, _, Deployment, _, ProjectTarget, DeploymentTarget, _ = _import_db_models()
 
     project = _get_project_or_404(db, project_id)
 
@@ -1457,6 +1454,21 @@ async def trigger_precheck(
             detail="Another task is already in progress for this project",
         )
 
+    enabled_targets = (
+        db.query(ProjectTarget)
+        .filter(
+            ProjectTarget.project_id == project_id,
+            ProjectTarget.enabled == True,
+        )
+        .order_by(ProjectTarget.order_index.asc(), ProjectTarget.id.asc())
+        .all()
+    )
+    if not enabled_targets:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No enabled targets for this project",
+        )
+
     precheck_deployment = Deployment(
         project_id=project_id,
         kind="precheck",
@@ -1466,6 +1478,21 @@ async def trigger_precheck(
         queued_at=datetime.utcnow(),
     )
     db.add(precheck_deployment)
+    db.flush()
+
+    # Without a DeploymentTarget the Agent never sees the task: it polls by
+    # target, so a bare Deployment would sit in "queued" forever and block
+    # every later deploy for this project.
+    for target in enabled_targets:
+        db.add(
+            DeploymentTarget(
+                deployment_id=precheck_deployment.id,
+                project_target_id=target.id,
+                agent_id=target.agent_id,
+                status="queued",
+            )
+        )
+
     db.commit()
     db.refresh(precheck_deployment)
 
