@@ -8,6 +8,7 @@ import signal
 import subprocess
 import threading
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -543,10 +544,15 @@ class Deployer:
     # ------------------------------------------------------------------
     # docker compose
     # ------------------------------------------------------------------
-    def docker_compose_config(self, compose_file: str = "docker-compose.yml") -> None:
+    def docker_compose_config(
+        self,
+        compose_file: str = "docker-compose.yml",
+        env: Optional[Dict[str, str]] = None,
+    ) -> None:
         code, _ = self._run_command(
             [*self._compose_args(compose_file), "config", "--quiet"],
             phase="docker_config",
+            env=env,
         )
         if code != 0:
             raise DeployError("compose_config_invalid", "docker compose config validation failed")
@@ -557,6 +563,7 @@ class Deployer:
         timeout: Optional[int] = None,
         no_cache: bool = False,
         services: Optional[List[str]] = None,
+        env: Optional[Dict[str, str]] = None,
     ) -> None:
         cmd = [*self._compose_args(compose_file), "build", "--progress", "plain"]
         if no_cache:
@@ -567,6 +574,7 @@ class Deployer:
             cmd,
             phase="docker_build",
             timeout=timeout,
+            env=env,
         )
         if code != 0:
             raise DeployError("docker_build_failed", "docker compose build failed")
@@ -576,6 +584,7 @@ class Deployer:
         compose_file: str = "docker-compose.yml",
         timeout: Optional[int] = None,
         services: Optional[List[str]] = None,
+        env: Optional[Dict[str, str]] = None,
     ) -> None:
         cmd = [*self._compose_args(compose_file), "pull"]
         if services:
@@ -584,6 +593,7 @@ class Deployer:
             cmd,
             phase="docker_pull",
             timeout=timeout,
+            env=env,
         )
         if code != 0:
             raise DeployError("docker_pull_failed", "docker compose pull failed")
@@ -592,6 +602,7 @@ class Deployer:
         self,
         compose_file: str = "docker-compose.yml",
         services: Optional[List[str]] = None,
+        env: Optional[Dict[str, str]] = None,
     ) -> None:
         cmd = [*self._compose_args(compose_file), "up", "-d"]
         if services:
@@ -600,6 +611,7 @@ class Deployer:
         code, _ = self._run_command(
             cmd,
             phase="docker_up",
+            env=env,
         )
         if code != 0:
             raise DeployError("docker_up_failed", "docker compose up failed")
@@ -647,6 +659,56 @@ class Deployer:
                 "App scope requires an explicit service list containing the primary Compose service",
             )
         return services
+
+    def verify_services(
+        self,
+        compose_file: str,
+        services: List[str],
+        env: Optional[Dict[str, str]] = None,
+        timeout: int = 90,
+        interval: int = 3,
+    ) -> None:
+        """Wait until every partially deployed service is running and healthy."""
+        deadline = time.time() + timeout
+        problems: List[str] = []
+
+        while True:
+            code, output = self._run_command(
+                [*self._compose_args(compose_file), "ps", "--format", "json"],
+                phase="health_check",
+                timeout=30,
+                env=env,
+            )
+            rows = []
+            if code == 0 and output.strip():
+                try:
+                    parsed = json.loads(output)
+                    rows = parsed if isinstance(parsed, list) else [parsed]
+                except json.JSONDecodeError:
+                    rows = [json.loads(line) for line in output.splitlines() if line.strip()]
+
+            by_service = {row.get("Service"): row for row in rows if isinstance(row, dict)}
+            problems = []
+            for service in services:
+                row = by_service.get(service)
+                if not row:
+                    problems.append(f"{service}: missing")
+                    continue
+                state = (row.get("State") or "").lower()
+                health = (row.get("Health") or "").lower()
+                if state != "running":
+                    problems.append(f"{service}: {state or 'unknown'}")
+                elif health == "unhealthy":
+                    problems.append(f"{service}: unhealthy")
+
+            if not problems:
+                return
+            if time.time() >= deadline:
+                raise DeployError(
+                    "partial_deploy_unhealthy",
+                    "Deployed services did not become healthy: " + ", ".join(problems),
+                )
+            time.sleep(interval)
 
     def collect_diagnostics(
         self,
@@ -845,6 +907,7 @@ class Deployer:
         app_services: Optional[List[str]] = None,
         compose_service: str = "app",
         deploy_services: Optional[List[str]] = None,
+        release_tag_env: Optional[str] = None,
     ) -> Dict[str, Any]:
         if project_id is not None:
             self.project_id = project_id
@@ -890,7 +953,16 @@ class Deployer:
 
             self.run_pre_deploy(pre_deploy)
 
-            self.docker_compose_config(compose_file)
+            # Let the project pin its image tag to the commit being deployed
+            # instead of whatever stale value sits in .env.
+            compose_env: Optional[Dict[str, str]] = None
+            if release_tag_env:
+                compose_env = {release_tag_env: current_commit}
+                self.log_collector.info(
+                    "git_resolve", f"Release tag env {release_tag_env}={current_commit[:12]}"
+                )
+
+            self.docker_compose_config(compose_file, env=compose_env)
 
             if strategy == "compose-build":
                 self.docker_compose_build(
@@ -898,12 +970,14 @@ class Deployer:
                     timeout=build_timeout_seconds,
                     no_cache=build_no_cache,
                     services=target_services,
+                    env=compose_env,
                 )
             elif strategy == "compose-pull":
                 self.docker_compose_pull(
                     compose_file,
                     timeout=pull_timeout_seconds,
                     services=target_services,
+                    env=compose_env,
                 )
             else:
                 raise DeployError(
@@ -920,7 +994,9 @@ class Deployer:
                     no_deps=migration_no_deps,
                 )
 
-            self.docker_compose_up(compose_file, services=target_services)
+            self.docker_compose_up(compose_file, services=target_services, env=compose_env)
+            if explicit_services:
+                self.verify_services(compose_file, explicit_services, env=compose_env)
             self.run_post_deploy(post_deploy)
 
             return {

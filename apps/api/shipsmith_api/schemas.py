@@ -48,6 +48,7 @@ class ProjectBase(BaseModel):
     pull_timeout_seconds: int = Field(default=900, ge=60, le=7200)
     build_no_cache: bool = False
     service_scope: str = Field(default="app", max_length=16)
+    release_tag_env: str = Field(default="", max_length=64)
     app_services: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
     release_notes_hint: Optional[str] = None
@@ -147,6 +148,7 @@ class ProjectUpdate(BaseModel):
     pull_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=7200)
     build_no_cache: Optional[bool] = None
     service_scope: Optional[str] = Field(default=None, max_length=16)
+    release_tag_env: Optional[str] = Field(default=None, max_length=64)
     app_services: Optional[List[str]] = None
     webhook_secret: Optional[str] = Field(default=None, max_length=256)
     notes: Optional[str] = None
@@ -341,6 +343,7 @@ class DeploymentResponse(BaseModel):
     finished_at: Optional[datetime] = None
     failure_phase: Optional[str] = None
     last_heartbeat_at: Optional[datetime] = None
+    requested_services: Optional[List[str]] = None
 
     class Config:
         from_attributes = True

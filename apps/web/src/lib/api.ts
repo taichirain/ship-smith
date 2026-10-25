@@ -117,6 +117,7 @@ export interface Deployment {
   log_excerpt: string | null;
   error_code: string | null;
   failure_phase?: string | null;
+  requested_services?: string[] | null;
   triggered_by: string | null;
   queued_at: string;
   started_at: string | null;

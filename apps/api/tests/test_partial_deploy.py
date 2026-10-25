@@ -66,3 +66,19 @@ def test_deploy_rejects_duplicate_services(client, auth_headers, test_session, t
     )
 
     assert response.status_code == 400
+
+
+def test_release_tag_env_round_trips(client, auth_headers, test_session, test_project):
+    test_project.release_tag_env = ""
+    test_session.commit()
+
+    response = client.patch(
+        f"/api/v1/projects/{test_project.id}",
+        headers=auth_headers,
+        json={"release_tag_env": "ALPHA_RELEASE_TAG"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["release_tag_env"] == "ALPHA_RELEASE_TAG"
+    test_session.refresh(test_project)
+    assert test_project.release_tag_env == "ALPHA_RELEASE_TAG"

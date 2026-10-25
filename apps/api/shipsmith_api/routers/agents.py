@@ -101,6 +101,7 @@ async def get_agent_config(
         "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds,
         "healthcheck_expected_status": project.healthcheck_expected_status,
         "intentionally_stopped": bool(project_status.intentionally_stopped) if project_status else False,
+        "release_tag_env": project.release_tag_env or "",
     }
 
 

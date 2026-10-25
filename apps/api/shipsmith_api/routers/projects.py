@@ -382,6 +382,7 @@ async def create_project(
         build_no_cache=data.build_no_cache,
         service_scope=data.service_scope,
         app_services=data.app_services or [data.compose_service],
+        release_tag_env=data.release_tag_env,
         agent_id=agent_id,
         agent_token_hash=agent_token_hash,
         webhook_endpoint_id=_generate_webhook_endpoint_id(),
@@ -1667,8 +1668,12 @@ async def get_project_timeline(
         else:
             event_type_val = f"deployment_{d.status}"
             title = f"Deploy #{d.id} {d.status}"
+            if d.requested_services:
+                title += f" (partial: {', '.join(d.requested_services)})"
 
         summary_parts = []
+        if d.requested_services:
+            summary_parts.append(f"Services: {', '.join(d.requested_services)}")
         if d.commit_hash:
             summary_parts.append(f"Commit: {d.commit_hash[:8]}")
         if d.trigger_source:
@@ -1691,6 +1696,7 @@ async def get_project_timeline(
                 "trigger_source": d.trigger_source,
                 "error_code": d.error_code,
                 "failure_phase": d.failure_phase,
+                "requested_services": d.requested_services,
             },
         })
 

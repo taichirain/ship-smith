@@ -195,6 +195,8 @@ def _get_recent_changes(db: Session, limit: int = 30) -> List[ChangeEvent]:
             category = "deployment"
             event_type = f"deploy_{d.status}"
             title = f"Deploy {d.status}"
+            if d.requested_services:
+                title = f"Partial deploy ({', '.join(d.requested_services)}) {d.status}"
         
         summary_parts = []
         if d.commit_hash:

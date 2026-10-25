@@ -62,6 +62,7 @@ class Project(Base):
     build_no_cache = Column(Boolean, nullable=False, default=False)
     service_scope = Column(String(16), nullable=False, default="app")
     app_services = Column(JSON, nullable=False, default=list)
+    release_tag_env = Column(String(64), nullable=False, default="")
     agent_id = Column(String(64), nullable=False)
     agent_token_hash = Column(String(256), nullable=False)
     webhook_secret = Column(String(256))

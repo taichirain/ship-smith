@@ -2678,6 +2678,11 @@ flags_sync_interval_seconds: 30`}
                           <span className="text-xs text-gray-500 uppercase">
                             {deployment.kind}
                           </span>
+                          {deployment.requested_services && deployment.requested_services.length > 0 && (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                              partial: {deployment.requested_services.join(', ')}
+                            </span>
+                          )}
                         </div>
                         <span className="text-xs text-gray-500">
                           {formatDate(deployment.queued_at)}
