@@ -24,6 +24,8 @@ function relativeTime(value: string | null): string {
   return days < 7 ? `${days}d ago` : parseApiTimestamp(value).toLocaleDateString();
 }
 
+const HEALTH_PRIORITY: Record<string, number> = { unhealthy: 0, degraded: 1, offline: 2, unknown: 3, stopped: 4, healthy: 5 };
+
 const DEPLOY_TONES: Record<string, string> = {
   success: 'text-emerald-600',
   failed: 'text-red-600',
@@ -74,7 +76,10 @@ function EmptyPreview({ text }: { text: string }) {
 }
 
 function FleetPanel({ projects }: { projects: Project[] }) {
-  const visible = projects.slice(0, FLEET_LIMIT);
+  // Problems first; the API sort does not know about the agent-liveness view.
+  const ordered = [...projects].sort((a, b) =>
+    (HEALTH_PRIORITY[a.health_status || 'unknown'] ?? 99) - (HEALTH_PRIORITY[b.health_status || 'unknown'] ?? 99));
+  const visible = ordered.slice(0, FLEET_LIMIT);
   return <section className="card flex min-w-0 flex-col overflow-hidden lg:col-span-2">
     <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4">
       <Package className="h-5 w-5 text-primary-600" />
