@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowRight, CheckCircle, GitBranch, Package, RefreshCw, Server, XCircle, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle, GitBranch, Package, Power, RefreshCw, Server, XCircle, Sparkles } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import LoginForm from '@/components/LoginForm';
 import StatusBadge from '@/components/StatusBadge';
@@ -24,21 +24,25 @@ function relativeTime(value: string | null): string {
 }
 
 function SummaryCards({ summary }: { summary: DashboardSummaryResponse['summary'] }) {
-  // Every counter is a drill-down entry point: the project list understands
-  // these query params, so a click lands on exactly the matching projects.
+  // Eight counters, one row on wide screens. Every one is a drill-down entry
+  // point: the project list understands the health_status query param.
   const cards = [
     { label: 'Total Projects', value: summary.total_projects, icon: Package, color: 'text-blue-600 bg-blue-50', href: '/projects' },
     { label: 'Healthy', value: summary.healthy_projects, icon: CheckCircle, color: 'text-green-600 bg-green-50', href: '/projects?health_status=healthy' },
     { label: 'Degraded', value: summary.degraded_projects, icon: AlertTriangle, color: 'text-yellow-600 bg-yellow-50', href: '/projects?health_status=degraded' },
     { label: 'Unhealthy', value: summary.unhealthy_projects, icon: XCircle, color: 'text-red-600 bg-red-50', href: '/projects?health_status=unhealthy' },
     { label: 'Agent Offline', value: summary.offline_projects, icon: Server, color: 'text-orange-600 bg-orange-50', href: '/projects?health_status=offline' },
-    { label: 'Stopped', value: summary.stopped_projects, icon: XCircle, color: 'text-gray-600 bg-gray-100', href: '/projects?health_status=stopped' },
-    { label: '24h Deployments', value: `${summary.last_24h_deployments_success}/${summary.last_24h_deployments_success + summary.last_24h_deployments_failed}`, icon: Sparkles, color: 'text-green-600 bg-green-50', href: '/activity/changes' },
+    { label: 'Stopped', value: summary.stopped_projects, icon: Power, color: 'text-gray-600 bg-gray-100', href: '/projects?health_status=stopped' },
+    { label: '24h Success', value: summary.last_24h_deployments_success, icon: Sparkles, color: 'text-emerald-600 bg-emerald-50', href: '/activity/changes' },
+    { label: '24h Failed', value: summary.last_24h_deployments_failed, icon: XCircle, color: 'text-red-600 bg-red-50', href: '/activity/changes' },
   ];
-  return <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-    {cards.map(({ label, value, icon: Icon, color, href }) => <Link key={label} href={href} title={`View ${label.toLowerCase()}`} className="card flex items-center gap-3 p-4 transition hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
-      <span className={`rounded-lg p-2 ${color}`}><Icon className="h-5 w-5" /></span>
-      <div className="min-w-0"><p className="text-xs text-gray-500">{label}</p><p className="text-2xl font-semibold text-gray-900">{value}</p></div>
+  return <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-8">
+    {cards.map(({ label, value, icon: Icon, color, href }) => <Link key={label} href={href} title={`View ${label.toLowerCase()}`} className="card flex min-w-0 items-center gap-2.5 p-3 transition hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+      <span className={`shrink-0 rounded-md p-1.5 ${color}`}><Icon className="h-4 w-4" /></span>
+      <div className="min-w-0">
+        <p className="truncate text-[11px] leading-4 text-gray-500">{label}</p>
+        <p className="text-xl font-semibold leading-6 text-gray-900">{value}</p>
+      </div>
     </Link>)}
   </div>;
 }
