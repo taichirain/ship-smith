@@ -12,7 +12,7 @@ from .client import CoreClient
 from .log_collector import LogCollector
 from .deployer import Deployer, DeployError
 from .outbox import Outbox
-from .health_check import HealthChecker
+from .health_check import HealthChecker, derive_container_health
 from .self_check import run_precheck
 from . import __version__ as AGENT_VERSION
 
@@ -173,6 +173,13 @@ class Agent:
                         timeout=config.get("healthcheck_timeout_seconds", 10),
                         expected_status=config.get("healthcheck_expected_status", 200),
                     )
+            else:
+                # No HTTP healthcheck configured: fall back to the container
+                # state so an internal-only service is not permanently unknown.
+                app_health = {
+                    "status": derive_container_health(containers),
+                    "source": "containers",
+                }
 
         previous_health = getattr(self, "_last_health_status", None)
         current_health = app_health.get("status")

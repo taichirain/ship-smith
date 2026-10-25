@@ -13,6 +13,29 @@ import psutil
 logger = logging.getLogger(__name__)
 
 
+def derive_container_health(containers: list) -> str:
+    """Turn per-container state into a project health verdict.
+
+    Used when the project has no HTTP healthcheck: the Compose-declared
+    container healthchecks are then the best signal ShipSmith has.
+    """
+    if not containers:
+        return "unknown"
+
+    states = [(container.get("status") or "").lower() for container in containers]
+    healths = [(container.get("health") or "").lower() for container in containers]
+
+    if any(state in ("exited", "dead", "created", "paused") for state in states):
+        return "unhealthy"
+    if any(state == "restarting" for state in states):
+        return "unhealthy"
+    if any(health == "unhealthy" for health in healths):
+        return "unhealthy"
+    if any(health == "starting" for health in healths):
+        return "unknown"
+    return "healthy"
+
+
 class HealthChecker:
     def __init__(self):
         pass
@@ -129,6 +152,7 @@ class HealthChecker:
                     "status": row.get("State") or "unknown",
                     "image": row.get("Image"),
                     "ports": [port.strip() for port in ports.split(",") if port.strip()],
+                    "health": (row.get("Health") or "").lower() or None,
                 })
             return containers
         except (OSError, subprocess.SubprocessError, ValueError, TypeError) as exc:

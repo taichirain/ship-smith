@@ -2,7 +2,7 @@ import threading
 import json
 from types import SimpleNamespace
 
-from shipsmith_agent.health_check import HealthChecker
+from shipsmith_agent.health_check import HealthChecker, derive_container_health
 from shipsmith_agent.main import Agent
 
 
@@ -142,6 +142,7 @@ def test_container_statuses_are_scoped_to_compose_project(tmp_path, monkeypatch)
         "status": "running",
         "image": "training:stage",
         "ports": ["127.0.0.1:18191->80/tcp"],
+        "health": None,
     }]
     assert commands[0][0] == [
         "docker", "compose", "--profile", "scheduler", "-f", "deploy/compose.yml",
@@ -242,3 +243,30 @@ def test_heartbeat_reports_stopped_from_project_config():
     agent._collect_and_send_heartbeat()
 
     assert agent.client.payload["app_health"]["status"] == "stopped"
+
+
+def test_derive_container_health_without_containers():
+    assert derive_container_health([]) == "unknown"
+
+
+def test_derive_container_health_all_running():
+    containers = [
+        {"service": "api", "status": "running", "health": "healthy"},
+        {"service": "web", "status": "running", "health": None},
+    ]
+    assert derive_container_health(containers) == "healthy"
+
+
+def test_derive_container_health_unhealthy_container():
+    containers = [{"service": "api", "status": "running", "health": "unhealthy"}]
+    assert derive_container_health(containers) == "unhealthy"
+
+
+def test_derive_container_health_still_starting():
+    containers = [{"service": "api", "status": "running", "health": "starting"}]
+    assert derive_container_health(containers) == "unknown"
+
+
+def test_derive_container_health_exited_or_restarting():
+    assert derive_container_health([{"service": "api", "status": "exited", "health": None}]) == "unhealthy"
+    assert derive_container_health([{"service": "api", "status": "restarting", "health": None}]) == "unhealthy"
