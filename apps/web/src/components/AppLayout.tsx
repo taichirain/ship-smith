@@ -86,8 +86,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
         className={`${collapsed ? 'w-20' : 'w-64'} shrink-0 bg-white border-r border-gray-200 flex flex-col transition-[width] duration-200`}
       >
         <div
-          className={`flex border-b border-gray-200 ${
-            collapsed ? 'flex-col items-center gap-2 px-2 py-3' : 'items-center justify-between px-4 py-4'
+          className={`flex h-16 shrink-0 items-center border-b border-gray-200 ${
+            collapsed ? 'flex-col justify-center gap-1 px-2' : 'justify-between px-4'
           }`}
         >
           <Link href="/" className="flex min-w-0 items-center gap-2">
