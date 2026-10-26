@@ -37,6 +37,9 @@ const FORM_DEFAULTS: Partial<FormData> = {
   migration_command: '',
   migration_timeout_seconds: 600,
   migration_no_deps: true,
+  migration_phase: 'pre',
+  migration_backup_service: '',
+  migration_backup_command: '',
   compose_profiles: '',
   build_timeout_seconds: 1800,
   pull_timeout_seconds: 900,
@@ -79,6 +82,9 @@ interface FormData {
   migration_command: string;
   migration_timeout_seconds: number;
   migration_no_deps: boolean;
+  migration_phase: string;
+  migration_backup_service: string;
+  migration_backup_command: string;
   compose_profiles: string;
   build_timeout_seconds: number;
   pull_timeout_seconds: number;
@@ -125,6 +131,9 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
     migration_command: '',
     migration_timeout_seconds: 600,
     migration_no_deps: true,
+    migration_phase: 'pre',
+    migration_backup_service: '',
+    migration_backup_command: '',
     compose_profiles: '',
     build_timeout_seconds: 1800,
     pull_timeout_seconds: 900,
@@ -391,6 +400,9 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
         migration_command: formData.migration_command.trim() || undefined,
         migration_timeout_seconds: formData.migration_timeout_seconds,
         migration_no_deps: formData.migration_no_deps,
+        migration_phase: formData.migration_phase,
+        migration_backup_service: formData.migration_backup_service.trim() || undefined,
+        migration_backup_command: formData.migration_backup_command.trim() || undefined,
         compose_profiles: formData.compose_profiles
           .split(',')
           .map((item) => item.trim())
@@ -946,6 +958,57 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
                 <label htmlFor="migration-no-deps" className="text-sm text-gray-700">
                   Migration without dependencies（--no-deps，默认不拉起依赖服务）
                 </label>
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Migration Phase</span>
+                  <span className="text-xs text-gray-400 font-normal">迁移时机</span>
+                </label>
+                <select
+                  className="input"
+                  value={formData.migration_phase}
+                  onChange={(e) => updateField('migration_phase', e.target.value)}
+                >
+                  <option value="pre">启动前执行（默认，向后兼容的扩展类变更）</option>
+                  <option value="post">启动后执行（收缩类变更，如删旧列）</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  零停机改表结构推荐分两次发布：先 pre 扩展，再 post 收缩
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label flex items-center justify-between">
+                    <span>Backup Service</span>
+                    <span className="text-xs text-gray-400 font-normal">备份服务</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={formData.migration_backup_service}
+                    onChange={(e) => updateField('migration_backup_service', e.target.value)}
+                    placeholder="db"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    迁移前在该 Compose 服务里执行备份命令，配置 Backup Command 时必填
+                  </p>
+                </div>
+                <div>
+                  <label className="label flex items-center justify-between">
+                    <span>Backup Command</span>
+                    <span className="text-xs text-gray-400 font-normal">备份命令</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="input font-mono text-xs"
+                    value={formData.migration_backup_command}
+                    onChange={(e) => updateField('migration_backup_command', e.target.value)}
+                    placeholder='pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    迁移前执行，stdout 保存为目标机上的备份文件；留空则不备份。备份失败会中止部署
+                  </p>
+                </div>
               </div>
               <div>
                 <label className="label flex items-center justify-between">

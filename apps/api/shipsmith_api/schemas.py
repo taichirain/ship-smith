@@ -43,6 +43,9 @@ class ProjectBase(BaseModel):
     migration_command: Optional[str] = None
     migration_timeout_seconds: int = Field(default=600, ge=1, le=7200)
     migration_no_deps: bool = True
+    migration_phase: str = Field(default="pre", max_length=8)
+    migration_backup_service: str = Field(default="", max_length=128)
+    migration_backup_command: Optional[str] = None
     compose_profiles: List[str] = Field(default_factory=list)
     build_timeout_seconds: int = Field(default=1800, ge=60, le=10800)
     pull_timeout_seconds: int = Field(default=900, ge=60, le=7200)
@@ -97,6 +100,13 @@ class ProjectCreate(ProjectBase):
             raise ValueError("service_scope must be 'app' or 'all'")
         return value
 
+    @field_validator("migration_phase")
+    @classmethod
+    def migration_phase_must_be_valid(cls, value: str) -> str:
+        if value not in {"pre", "post"}:
+            raise ValueError("migration_phase must be 'pre' or 'post'")
+        return value
+
     @field_validator("app_services")
     @classmethod
     def app_services_must_be_valid(cls, value: List[str]) -> List[str]:
@@ -143,6 +153,9 @@ class ProjectUpdate(BaseModel):
     migration_command: Optional[str] = None
     migration_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=7200)
     migration_no_deps: Optional[bool] = None
+    migration_phase: Optional[str] = Field(default=None, max_length=8)
+    migration_backup_service: Optional[str] = Field(default=None, max_length=128)
+    migration_backup_command: Optional[str] = None
     compose_profiles: Optional[List[str]] = None
     build_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=10800)
     pull_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=7200)
@@ -196,6 +209,13 @@ class ProjectUpdate(BaseModel):
     def optional_service_scope_must_be_valid(cls, value: Optional[str]) -> Optional[str]:
         if value is not None and value not in {"app", "all"}:
             raise ValueError("service_scope must be 'app' or 'all'")
+        return value
+
+    @field_validator("migration_phase")
+    @classmethod
+    def optional_migration_phase_must_be_valid(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in {"pre", "post"}:
+            raise ValueError("migration_phase must be 'pre' or 'post'")
         return value
 
     @field_validator("app_services")

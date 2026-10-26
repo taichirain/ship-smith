@@ -73,6 +73,9 @@ const FORM_DEFAULTS: Partial<WizardFormData> = {
   migration_command: '',
   migration_timeout_seconds: 600,
   migration_no_deps: true,
+  migration_phase: 'pre',
+  migration_backup_service: '',
+  migration_backup_command: '',
   compose_profiles: '',
   build_timeout_seconds: 1800,
   pull_timeout_seconds: 900,
@@ -114,6 +117,9 @@ interface WizardFormData {
   migration_command: string;
   migration_timeout_seconds: number;
   migration_no_deps: boolean;
+  migration_phase: string;
+  migration_backup_service: string;
+  migration_backup_command: string;
   compose_profiles: string;
   build_timeout_seconds: number;
   pull_timeout_seconds: number;
@@ -161,6 +167,9 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     migration_command: '',
     migration_timeout_seconds: 600,
     migration_no_deps: true,
+    migration_phase: 'pre',
+    migration_backup_service: '',
+    migration_backup_command: '',
     compose_profiles: '',
     build_timeout_seconds: 1800,
     pull_timeout_seconds: 900,
@@ -500,6 +509,9 @@ ${formData.healthcheck_url ? `health_check:
         migration_command: formData.migration_command.trim() || undefined,
         migration_timeout_seconds: formData.migration_timeout_seconds,
         migration_no_deps: formData.migration_no_deps,
+        migration_phase: formData.migration_phase,
+        migration_backup_service: formData.migration_backup_service.trim() || undefined,
+        migration_backup_command: formData.migration_backup_command.trim() || undefined,
         compose_profiles: formData.compose_profiles
           .split(',')
           .map((item) => item.trim())
@@ -1038,6 +1050,45 @@ ${formData.healthcheck_url ? `health_check:
                   <label htmlFor="wizard-migration-no-deps" className="text-sm text-gray-700">
                     Migration without dependencies（--no-deps，默认不拉起依赖服务）
                   </label>
+                </div>
+                <div>
+                  <label className="label">迁移时机</label>
+                  <select
+                    className="input"
+                    value={formData.migration_phase}
+                    onChange={(e) => updateField('migration_phase', e.target.value)}
+                  >
+                    <option value="pre">启动前执行（默认，向后兼容的扩展类变更）</option>
+                    <option value="post">启动后执行（收缩类变更，如删旧列）</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">备份服务</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={formData.migration_backup_service}
+                      onChange={(e) => updateField('migration_backup_service', e.target.value)}
+                      placeholder="db"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      迁移前在该 Compose 服务里执行备份命令
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">备份命令</label>
+                    <input
+                      type="text"
+                      className="input font-mono text-xs"
+                      value={formData.migration_backup_command}
+                      onChange={(e) => updateField('migration_backup_command', e.target.value)}
+                      placeholder='pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      stdout 保存为目标机上的备份文件；留空则不备份
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <label className="label">Compose Profiles</label>

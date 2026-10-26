@@ -394,6 +394,66 @@ def test_stop_with_services_appends_them(tmp_path):
     assert captured["cmd"][-3:] == ["stop", "web", "worker"]
 
 
+def _fake_backup_proc(monkeypatch, returncode=0, payload=b"dump-bytes", stderr=b""):
+    import shipsmith_agent.deployer as deployer_mod
+
+    class FakeProc:
+        def __init__(self):
+            self.returncode = returncode
+            self.stderr = stderr
+
+    def fake_run(cmd, cwd=None, env=None, stdout=None, stderr=None, timeout=None):
+        stdout.write(payload)
+        return FakeProc()
+
+    monkeypatch.setattr(deployer_mod.subprocess, "run", fake_run)
+
+
+def test_migration_backup_writes_stdout_to_file(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    _fake_backup_proc(monkeypatch, returncode=0, payload=b"pgdump-binary")
+
+    path = deployer.run_migration_backup(
+        "docker-compose.yml", service="db", command="pg_dump -Fc"
+    )
+
+    assert path is not None
+    data = (tmp_path / "shipsmith-backups").glob("*-pre-migration.dump")
+    files = list(data)
+    assert len(files) == 1
+    assert files[0].read_bytes() == b"pgdump-binary"
+
+
+def test_migration_backup_requires_service(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+
+    with pytest.raises(DeployError) as exc:
+        deployer.run_migration_backup("docker-compose.yml", service="", command="pg_dump")
+
+    assert exc.value.error_code == "migration_backup_service_missing"
+
+
+def test_migration_backup_failure_aborts_and_cleans_up(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    _fake_backup_proc(monkeypatch, returncode=1, stderr=b"connection refused")
+
+    with pytest.raises(DeployError) as exc:
+        deployer.run_migration_backup("docker-compose.yml", service="db", command="pg_dump")
+
+    assert exc.value.error_code == "migration_backup_failed"
+    assert list((tmp_path / "shipsmith-backups").glob("*.dump")) == []
+
+
+def test_migration_backup_skipped_without_command(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+
+    assert deployer.run_migration_backup("docker-compose.yml", service="db", command=None) is None
+
+
 def test_assert_managed_repo_rejects_uninitialized_dir(tmp_path):
     workdir = tmp_path / "workdir"
     workdir.mkdir()

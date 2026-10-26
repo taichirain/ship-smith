@@ -32,6 +32,9 @@ export interface Project {
   migration_command: string | null;
   migration_timeout_seconds: number;
   migration_no_deps: boolean;
+  migration_phase: string;
+  migration_backup_service: string;
+  migration_backup_command: string | null;
   compose_profiles: string[];
   build_timeout_seconds: number;
   pull_timeout_seconds: number;
@@ -90,6 +93,9 @@ export interface ProjectUpdate {
   migration_command?: string | null;
   migration_timeout_seconds?: number;
   migration_no_deps?: boolean;
+  migration_phase?: string;
+  migration_backup_service?: string;
+  migration_backup_command?: string | null;
   compose_profiles?: string[];
   build_timeout_seconds?: number;
   pull_timeout_seconds?: number;

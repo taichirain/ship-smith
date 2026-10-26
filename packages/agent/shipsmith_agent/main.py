@@ -50,6 +50,8 @@ _ERROR_PHASE_MAP = {
     "pre_deploy_failed": "pre_deploy",
     "post_deploy_failed": "post_deploy",
     "migration_failed": "migration",
+    "migration_backup_failed": "migration_backup",
+    "migration_backup_service_missing": "preflight",
     "docker_stop_failed": "service_stop",
     "migration_service_missing": "preflight",
     "migration_command_invalid": "migration",
@@ -502,6 +504,9 @@ class Agent:
             migration_command = task.get("migration_command")
             migration_timeout = task.get("migration_timeout_seconds", 600)
             migration_no_deps = task.get("migration_no_deps", True)
+            migration_phase = task.get("migration_phase") or "pre"
+            migration_backup_service = task.get("migration_backup_service") or ""
+            migration_backup_command = task.get("migration_backup_command")
             compose_profiles = task.get("compose_profiles") or []
             build_timeout_seconds = task.get("build_timeout_seconds", 1800)
             pull_timeout_seconds = task.get("pull_timeout_seconds", 900)
@@ -578,6 +583,9 @@ class Agent:
                     migration_command=migration_command,
                     migration_timeout_seconds=migration_timeout,
                     migration_no_deps=migration_no_deps,
+                    migration_phase=migration_phase,
+                    migration_backup_service=migration_backup_service,
+                    migration_backup_command=migration_backup_command,
                     build_timeout_seconds=build_timeout_seconds,
                     pull_timeout_seconds=pull_timeout_seconds,
                     build_no_cache=build_no_cache,

@@ -1,11 +1,19 @@
+# syntax=docker/dockerfile:1
 # ---------- builder ----------
 FROM node:22-alpine AS builder
+
+# npm registry is selectable at build time (see scripts/build_shipsmith_image.sh):
+#   --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+ARG NPM_REGISTRY=""
 
 WORKDIR /app
 COPY apps/web/package.json apps/web/package-lock.json* ./
 
-# npm ci requires lockfile — fall back to install if missing
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# npm ci requires lockfile — fall back to install if missing.
+# The npm cache lives in a persistent BuildKit mount across builds.
+RUN --mount=type=cache,target=/root/.npm \
+    if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi && \
+    if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY apps/web/ .
 RUN npm run build

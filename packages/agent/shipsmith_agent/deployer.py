@@ -41,6 +41,7 @@ DEFAULT_TIMEOUTS = {
     "service_stop": 300,
     "service_start": 300,
     "migration": 600,
+    "migration_backup": 600,
     "pre_deploy": 600,
     "post_deploy": 600,
     "snapshot": 60,
@@ -852,6 +853,70 @@ class Deployer:
         if code != 0:
             raise DeployError("migration_failed", "database migration failed")
 
+    def run_migration_backup(
+        self,
+        compose_file: str,
+        service: Optional[str],
+        command: Optional[str],
+        timeout: int = 600,
+        env: Optional[Dict[str, str]] = None,
+    ) -> Optional[str]:
+        """Run a backup command inside a running compose service and keep stdout.
+
+        The command executes via `docker compose exec -T <service> sh -c ...` and
+        its raw stdout (e.g. pg_dump -Fc output) is written to a timestamped file
+        under <workdir>/../shipsmith-backups/, outside the deployed worktree.
+        A failed backup aborts the deployment before any migration runs.
+        """
+        if not command or not command.strip():
+            return None
+        if not service or not service.strip():
+            raise DeployError(
+                "migration_backup_service_missing",
+                "migration_backup_service is required when migration_backup_command is set",
+            )
+
+        backup_dir = Path(self.workdir).parent / "shipsmith-backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        path = backup_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-pre-migration.dump"
+
+        cmd = self._compose_args(compose_file) + ["exec", "-T", service.strip(), "sh", "-c", command]
+        self.log_collector.info(
+            "migration_backup",
+            f"Running pre-migration backup via service '{service.strip()}'...",
+        )
+
+        command_env = os.environ.copy()
+        if env:
+            command_env.update(env)
+        try:
+            with open(path, "wb") as fh:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=self.workdir,
+                    env=command_env,
+                    stdout=fh,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout,
+                )
+        except subprocess.TimeoutExpired:
+            path.unlink(missing_ok=True)
+            raise DeployError("migration_backup_failed", "pre-migration backup timed out")
+        except FileNotFoundError as exc:
+            path.unlink(missing_ok=True)
+            raise DeployError("migration_backup_failed", f"backup command failed to start: {exc}")
+
+        if proc.returncode != 0:
+            path.unlink(missing_ok=True)
+            detail = proc.stderr.decode(errors="replace")[-500:]
+            raise DeployError("migration_backup_failed", f"pre-migration backup failed: {detail}")
+
+        self.log_collector.info(
+            "migration_backup",
+            f"Backup written to {path} ({path.stat().st_size} bytes)",
+        )
+        return str(path)
+
     def run_pre_deploy(self, cmd: Optional[str]) -> None:
         if not cmd or not cmd.strip():
             return
@@ -901,6 +966,9 @@ class Deployer:
         migration_command: Optional[str] = None,
         migration_timeout_seconds: int = 600,
         migration_no_deps: bool = True,
+        migration_phase: str = "pre",
+        migration_backup_service: str = "",
+        migration_backup_command: Optional[str] = None,
         build_timeout_seconds: int = 1800,
         pull_timeout_seconds: int = 900,
         build_no_cache: bool = False,
@@ -986,7 +1054,18 @@ class Deployer:
                     f"Unsupported deploy strategy: {strategy}",
                 )
 
-            if not explicit_services:
+            # Migrations only run on full deploys. phase=pre (default) runs
+            # before `up` (expand-style, backwards-compatible changes);
+            # phase=post runs after `up` (contract-style cleanups). A
+            # configured backup always runs immediately before the migration.
+            if not explicit_services and migration_phase != "post":
+                self.run_migration_backup(
+                    compose_file=compose_file,
+                    service=migration_backup_service,
+                    command=migration_backup_command,
+                    timeout=migration_timeout_seconds,
+                    env=compose_env,
+                )
                 self.run_migration(
                     compose_file=compose_file,
                     service=migration_service,
@@ -999,6 +1078,22 @@ class Deployer:
             self.docker_compose_up(compose_file, services=target_services, env=compose_env)
             if explicit_services:
                 self.verify_services(compose_file, explicit_services, env=compose_env)
+            if not explicit_services and migration_phase == "post":
+                self.run_migration_backup(
+                    compose_file=compose_file,
+                    service=migration_backup_service,
+                    command=migration_backup_command,
+                    timeout=migration_timeout_seconds,
+                    env=compose_env,
+                )
+                self.run_migration(
+                    compose_file=compose_file,
+                    service=migration_service,
+                    command=migration_command,
+                    timeout=migration_timeout_seconds,
+                    no_deps=migration_no_deps,
+                    env=compose_env,
+                )
             self.run_post_deploy(post_deploy)
 
             return {

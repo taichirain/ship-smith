@@ -313,6 +313,9 @@ def _build_project_summary(project, project_status) -> dict:
         "migration_command": project.migration_command,
         "migration_timeout_seconds": project.migration_timeout_seconds,
         "migration_no_deps": project.migration_no_deps,
+        "migration_phase": project.migration_phase,
+        "migration_backup_service": project.migration_backup_service,
+        "migration_backup_command": project.migration_backup_command,
         "compose_profiles": project.compose_profiles or [],
         "build_timeout_seconds": project.build_timeout_seconds,
         "pull_timeout_seconds": project.pull_timeout_seconds,
@@ -348,6 +351,11 @@ async def create_project(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="migration_service is required when migration_command is set",
+        )
+    if data.migration_backup_command and not data.migration_backup_service.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="migration_backup_service is required when migration_backup_command is set",
         )
     if data.service_scope == "app" and data.compose_service not in (data.app_services or [data.compose_service]):
         raise HTTPException(
@@ -392,6 +400,9 @@ async def create_project(
         migration_command=data.migration_command,
         migration_timeout_seconds=data.migration_timeout_seconds,
         migration_no_deps=data.migration_no_deps,
+        migration_phase=data.migration_phase,
+        migration_backup_service=data.migration_backup_service,
+        migration_backup_command=data.migration_backup_command,
         compose_profiles=data.compose_profiles,
         build_timeout_seconds=data.build_timeout_seconds,
         pull_timeout_seconds=data.pull_timeout_seconds,
@@ -599,6 +610,9 @@ async def get_project(
         "migration_command": project.migration_command,
         "migration_timeout_seconds": project.migration_timeout_seconds,
         "migration_no_deps": project.migration_no_deps,
+        "migration_phase": project.migration_phase,
+        "migration_backup_service": project.migration_backup_service,
+        "migration_backup_command": project.migration_backup_command,
         "compose_profiles": project.compose_profiles or [],
         "build_timeout_seconds": project.build_timeout_seconds,
         "pull_timeout_seconds": project.pull_timeout_seconds,
@@ -663,6 +677,8 @@ async def update_project(
         "migration_service": "",
         "migration_timeout_seconds": 600,
         "migration_no_deps": True,
+        "migration_phase": "pre",
+        "migration_backup_service": "",
         "compose_profiles": [],
         "healthcheck_expected_status": 200,
         "build_timeout_seconds": 1800,
@@ -698,6 +714,12 @@ async def update_project(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="migration_service is required when migration_command is set",
+        )
+
+    if project.migration_backup_command and not (project.migration_backup_service or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="migration_backup_service is required when migration_backup_command is set",
         )
 
     project.updated_at = datetime.utcnow()

@@ -976,6 +976,9 @@ export default function ProjectDetailPage() {
       migration_command: project.migration_command,
       migration_timeout_seconds: project.migration_timeout_seconds,
       migration_no_deps: project.migration_no_deps,
+      migration_phase: project.migration_phase,
+      migration_backup_service: project.migration_backup_service,
+      migration_backup_command: project.migration_backup_command,
       build_timeout_seconds: project.build_timeout_seconds,
       pull_timeout_seconds: project.pull_timeout_seconds,
       build_no_cache: project.build_no_cache,
@@ -1009,6 +1012,9 @@ export default function ProjectDetailPage() {
         healthcheck_url: editFormData.healthcheck_url || null,
         migration_service: (editFormData.migration_service || '').trim(),
         migration_command: (editFormData.migration_command || '').trim() || null,
+        migration_phase: editFormData.migration_phase || 'pre',
+        migration_backup_service: (editFormData.migration_backup_service || '').trim(),
+        migration_backup_command: (editFormData.migration_backup_command || '').trim() || null,
         compose_profiles: editComposeProfilesText
           .split(',')
           .map((item) => item.trim())
@@ -1716,7 +1722,10 @@ export default function ProjectDetailPage() {
                         : '—'}
                     </code>
                     <p className="text-xs text-gray-400">
-                      构建后、启动前执行；{project.migration_no_deps ? '不拉起依赖服务' : '允许拉起依赖服务'}，超时 {project.migration_timeout_seconds} 秒
+                      {project.migration_phase === 'post' ? '启动后执行' : '构建后、启动前执行'}；{project.migration_no_deps ? '不拉起依赖服务' : '允许拉起依赖服务'}，超时 {project.migration_timeout_seconds} 秒
+                      {project.migration_backup_command
+                        ? `；迁移前备份：${project.migration_backup_service}`
+                        : ''}
                     </p>
                   </div>
                   <div className="space-y-1">
@@ -3816,6 +3825,72 @@ flags_sync_interval_seconds: 30`}
                       <label htmlFor="edit-migration-no-deps" className="text-sm text-gray-700">
                         Migration without dependencies（--no-deps，默认不拉起依赖服务）
                       </label>
+                    </div>
+                    <div>
+                      <label className="label flex items-center justify-between">
+                        <span>Migration Phase</span>
+                        <span className="text-xs text-gray-400 font-normal">迁移时机</span>
+                      </label>
+                      <select
+                        className="input"
+                        value={editFormData.migration_phase || 'pre'}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            migration_phase: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="pre">启动前执行（默认，向后兼容的扩展类变更）</option>
+                        <option value="post">启动后执行（收缩类变更，如删旧列）</option>
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">
+                        零停机改表结构推荐分两次发布：先 pre 扩展，再 post 收缩
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="label flex items-center justify-between">
+                          <span>Backup Service</span>
+                          <span className="text-xs text-gray-400 font-normal">备份服务</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={editFormData.migration_backup_service || ''}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              migration_backup_service: e.target.value,
+                            })
+                          }
+                          placeholder="db"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                          迁移前在该 Compose 服务里执行备份命令，配置 Backup Command 时必填
+                        </p>
+                      </div>
+                      <div>
+                        <label className="label flex items-center justify-between">
+                          <span>Backup Command</span>
+                          <span className="text-xs text-gray-400 font-normal">备份命令</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="input font-mono text-xs"
+                          value={editFormData.migration_backup_command || ''}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              migration_backup_command: e.target.value,
+                            })
+                          }
+                          placeholder='pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                          迁移前执行，stdout 保存为目标机上的备份文件；留空则不备份。备份失败会中止部署
+                        </p>
+                      </div>
                     </div>
                     <div>
                       <label className="label flex items-center justify-between">
