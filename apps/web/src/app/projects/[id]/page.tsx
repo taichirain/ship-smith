@@ -624,6 +624,9 @@ export default function ProjectDetailPage() {
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [deployMode, setDeployMode] = useState<'all-at-once' | 'rolling'>('all-at-once');
   const [showDeployModal, setShowDeployModal] = useState(false);
+  const [showStopModal, setShowStopModal] = useState(false);
+  const [stopMode, setStopMode] = useState<'all' | 'partial'>('all');
+  const [stopServices, setStopServices] = useState<string[]>([]);
 
   const handleCopyWithFeedback = async (text: string, itemKey: string) => {
     try {
@@ -847,18 +850,39 @@ export default function ProjectDetailPage() {
     return () => clearInterval(interval);
   }, [loadStatus, loadOnboarding, refreshActivity]);
 
-  async function handleStopProject() {
+  function handleStopProject() {
     if (!project) return;
-    const scope = project.service_scope === 'all'
-      ? '整份 Compose 的服务'
-      : `应用服务：${(project.app_services || []).join(', ') || '未配置'}`;
-    if (!window.confirm(`停止${scope}？容器和数据卷都会保留。`)) return;
+    setStopMode('all');
+    setStopServices([]);
+    setShowStopModal(true);
+  }
+
+  async function confirmStopProject() {
+    if (!project) return;
+    const services = stopMode === 'partial' ? stopServices : undefined;
+    if (stopMode === 'partial' && (!services || services.length === 0)) {
+      setError('请至少选择一个要停止的服务');
+      return;
+    }
     try {
       setDeploying(true);
-      await api.stopProject(projectId);
+      await api.stopProject(projectId, services);
+      setShowStopModal(false);
       await loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to stop project');
+    } finally {
+      setDeploying(false);
+    }
+  }
+
+  async function handleStartService(service: string) {
+    try {
+      setDeploying(true);
+      await api.startProject(projectId, [service]);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to start service');
     } finally {
       setDeploying(false);
     }
@@ -1472,16 +1496,30 @@ export default function ProjectDetailPage() {
                               className="flex items-center justify-between text-sm"
                             >
                               <span className="font-mono">{container.service}</span>
-                              <StatusBadge
-                                status={
-                                  container.status === 'running'
-                                    ? 'healthy'
-                                    : container.status === 'exited'
-                                      ? 'failed'
-                                      : 'unknown'
-                                }
-                                small
-                              />
+                              <div className="flex items-center gap-2">
+                                <StatusBadge
+                                  status={
+                                    container.status === 'running'
+                                      ? 'healthy'
+                                      : container.status === 'exited'
+                                        ? 'failed'
+                                        : 'unknown'
+                                  }
+                                  small
+                                />
+                                {container.status !== 'running' &&
+                                  !projectStatus.intentionally_stopped && (
+                                    <button
+                                      onClick={() => handleStartService(container.service)}
+                                      disabled={deploying}
+                                      className="inline-flex items-center text-xs text-primary-600 hover:text-primary-800 disabled:opacity-50"
+                                      title={`启动服务 ${container.service}`}
+                                    >
+                                      <Play className="w-3 h-3 mr-0.5" />
+                                      启动
+                                    </button>
+                                  )}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1713,8 +1751,8 @@ export default function ProjectDetailPage() {
                     <code className="font-mono text-sm">{project.service_scope}</code>
                     <p className="text-xs text-gray-400">
                       {project.service_scope === 'all'
-                        ? 'Stop/Start 作用于整份 Compose（含数据库）'
-                        : `部署、停止和启动仅作用于：${(project.app_services || []).join(', ')}`}
+                        ? '整项目 Stop/Start 作用于整份 Compose（含数据库）；也可在停止弹窗中按服务操作'
+                        : `部署和整项目 Stop/Start 仅作用于：${(project.app_services || []).join(', ')}；也可在停止弹窗中按服务操作`}
                     </p>
                   </div>
                 </div>
@@ -4008,6 +4046,129 @@ flags_sync_interval_seconds: 30`}
                   disabled={savingRunbook}
                 >
                   {savingRunbook ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showStopModal && project && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                  <Square className="w-5 h-5" />
+                  停止服务
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  容器和数据卷都会保留，之后可以随时启动。
+                </p>
+              </div>
+
+              <div className="p-6 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setStopMode('all')}
+                  className={`w-full p-4 rounded-lg border text-left transition-colors ${
+                    stopMode === 'all'
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="font-medium text-gray-900">整个项目</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    停止
+                    {project.service_scope === 'all'
+                      ? '整份 Compose 的服务'
+                      : `应用服务：${(project.app_services || []).join(', ') || '未配置'}`}
+                    ，项目将标记为已停止。
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStopMode('partial')}
+                  className={`w-full p-4 rounded-lg border text-left transition-colors ${
+                    stopMode === 'partial'
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="font-medium text-gray-900">指定服务</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    只停止选中的服务，项目其余服务保持运行。
+                  </div>
+                </button>
+
+                {stopMode === 'partial' && (
+                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                    {(projectStatus?.containers || []).length === 0 ? (
+                      <div className="p-4 text-sm text-gray-500">
+                        暂无从 Agent 上报的容器信息，无法按服务停止。
+                      </div>
+                    ) : (
+                      (projectStatus?.containers || []).map((container) => (
+                        <label
+                          key={container.service}
+                          className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300"
+                              checked={stopServices.includes(container.service)}
+                              disabled={container.status !== 'running'}
+                              onChange={(e) => {
+                                setStopServices((prev) =>
+                                  e.target.checked
+                                    ? [...prev, container.service]
+                                    : prev.filter((s) => s !== container.service)
+                                );
+                              }}
+                            />
+                            <span className="font-mono text-sm">{container.service}</span>
+                          </div>
+                          <StatusBadge
+                            status={
+                              container.status === 'running'
+                                ? 'healthy'
+                                : container.status === 'exited'
+                                  ? 'failed'
+                                  : 'unknown'
+                            }
+                            small
+                          />
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowStopModal(false)}
+                  className="btn btn-secondary"
+                  disabled={deploying}
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmStopProject}
+                  className="btn btn-danger"
+                  disabled={deploying || (stopMode === 'partial' && stopServices.length === 0)}
+                >
+                  {deploying ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      停止中...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="w-4 h-4 mr-2" />
+                      确认停止
+                    </>
+                  )}
                 </button>
               </div>
             </div>

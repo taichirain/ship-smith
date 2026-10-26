@@ -379,6 +379,21 @@ def test_stop_uses_compose_stop(tmp_path):
     assert "--no-cache" not in captured["cmd"]
 
 
+def test_stop_with_services_appends_them(tmp_path):
+    repo = make_repo(tmp_path)
+    deployer = make_deployer(repo)
+    captured = {}
+
+    def fake_run_command(cmd, phase, **kwargs):
+        captured["cmd"] = cmd
+        return 0, ""
+
+    deployer._run_command = fake_run_command
+    deployer.docker_compose_stop("docker-compose.yml", services=["web", "worker"])
+
+    assert captured["cmd"][-3:] == ["stop", "web", "worker"]
+
+
 def test_assert_managed_repo_rejects_uninitialized_dir(tmp_path):
     workdir = tmp_path / "workdir"
     workdir.mkdir()

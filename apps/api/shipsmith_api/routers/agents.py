@@ -581,9 +581,11 @@ async def finish_task(
             .first()
         )
         if stop_status:
-            if deployment.kind == "service_stop" and overall_status == "success":
+            # Partial operations (specific services only) never toggle the
+            # project-level intentionally_stopped flag.
+            if deployment.kind == "service_stop" and overall_status == "success" and not deployment.requested_services:
                 stop_status.intentionally_stopped = True
-            elif deployment.kind == "service_start" and overall_status == "success":
+            elif deployment.kind == "service_start" and overall_status == "success" and not deployment.requested_services:
                 stop_status.intentionally_stopped = False
             elif deployment.kind in ("deploy", "rollback") and overall_status in ("success", "rolled_back"):
                 stop_status.intentionally_stopped = False

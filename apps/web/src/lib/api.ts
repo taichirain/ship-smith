@@ -917,12 +917,20 @@ export const api = {
     return request<Deployment>('POST', `/v1/projects/${projectId}/rollback-to-last-success`);
   },
 
-  async stopProject(projectId: number): Promise<Deployment> {
-    return request<Deployment>('POST', `/v1/projects/${projectId}/stop`);
+  async stopProject(projectId: number, services?: string[]): Promise<Deployment> {
+    return request<Deployment>(
+      'POST',
+      `/v1/projects/${projectId}/stop`,
+      services && services.length > 0 ? { services } : undefined
+    );
   },
 
-  async startProject(projectId: number): Promise<Deployment> {
-    return request<Deployment>('POST', `/v1/projects/${projectId}/start`);
+  async startProject(projectId: number, services?: string[]): Promise<Deployment> {
+    return request<Deployment>(
+      'POST',
+      `/v1/projects/${projectId}/start`,
+      services && services.length > 0 ? { services } : undefined
+    );
   },
 
   async listDeployments(projectId: number, limit: number = 50): Promise<Deployment[]> {

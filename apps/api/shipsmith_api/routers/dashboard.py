@@ -191,6 +191,8 @@ def _get_recent_changes(db: Session, limit: int = 30) -> List[ChangeEvent]:
             category = "operation"
             event_type = f"operation_{d.status}"
             title = f"{'Stop' if d.kind == 'service_stop' else 'Start'} {d.status}"
+            if d.requested_services:
+                title = f"Partial {'stop' if d.kind == 'service_stop' else 'start'} ({', '.join(d.requested_services)}) {d.status}"
         else:
             category = "deployment"
             event_type = f"deploy_{d.status}"

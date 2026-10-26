@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ValidationError
 
@@ -37,6 +37,7 @@ from ..schemas import (
     DeploymentResponse,
     DeployRequest,
     RollbackRequest,
+    ServiceOperationRequest,
     RotateAgentTokenResponse,
     TimelineEvent,
     TimelineResponse,
@@ -1162,6 +1163,7 @@ def _service_operation(
     project_id: int,
     kind: str,
     current_user: dict,
+    services: Optional[List[str]] = None,
 ) -> Any:
     Project, ProjectStatus, Deployment, _, ProjectTarget, DeploymentTarget, _ = _import_db_models()
 
@@ -1199,13 +1201,26 @@ def _service_operation(
             detail="No enabled targets for this project",
         )
 
+    requested_services = [service.strip() for service in (services or []) if service.strip()]
+    if requested_services:
+        if len(requested_services) != len(set(requested_services)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="services must be unique",
+            )
+        if project.service_scope == "app" and not set(requested_services) <= set(project.app_services or []):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="services must be a subset of app_services for app scope",
+            )
+
     if kind == "service_stop":
         if project_status and project_status.intentionally_stopped:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Project is already intentionally stopped",
             )
-    else:
+    elif not requested_services:
         if not project_status or not project_status.intentionally_stopped:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -1221,6 +1236,10 @@ def _service_operation(
         triggered_by=current_user.get("username"),
         queued_at=datetime.utcnow(),
     )
+    if requested_services:
+        deployment.requested_services = requested_services
+        deployment.effective_services = list(requested_services)
+    deployment.effective_service_scope = project.service_scope
     db.add(deployment)
     db.flush()
 
@@ -1241,22 +1260,40 @@ def _service_operation(
 @router.post("/{project_id}/stop", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
 async def stop_project(
     project_id: int,
+    data: Optional[ServiceOperationRequest] = Body(default=None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Stop the project's Compose services without deleting containers or volumes."""
-    deployment = _service_operation(db, project_id, "service_stop", current_user)
+    """Stop the project's Compose services without deleting containers or volumes.
+
+    Accepts an optional body with a ``services`` list to stop only the given
+    Compose services (partial stop); the project is not marked as
+    intentionally stopped in that case.
+    """
+    deployment = _service_operation(
+        db, project_id, "service_stop", current_user,
+        services=(data.services if data else None),
+    )
     return DeploymentResponse.model_validate(deployment)
 
 
 @router.post("/{project_id}/start", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
 async def start_project(
     project_id: int,
+    data: Optional[ServiceOperationRequest] = Body(default=None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Start a project that was intentionally stopped."""
-    deployment = _service_operation(db, project_id, "service_start", current_user)
+    """Start a project that was intentionally stopped.
+
+    Accepts an optional body with a ``services`` list to start only the given
+    Compose services (partial start), which is also allowed while the project
+    is running.
+    """
+    deployment = _service_operation(
+        db, project_id, "service_start", current_user,
+        services=(data.services if data else None),
+    )
     return DeploymentResponse.model_validate(deployment)
 
 
@@ -1697,6 +1734,8 @@ async def get_project_timeline(
         elif d.kind in ("service_stop", "service_start"):
             event_type_val = f"operation_{d.status}"
             title = f"{'Stop' if d.kind == 'service_stop' else 'Start'} #{d.id} {d.status}"
+            if d.requested_services:
+                title += f" (partial: {', '.join(d.requested_services)})"
         else:
             event_type_val = f"deployment_{d.status}"
             title = f"Deploy #{d.id} {d.status}"

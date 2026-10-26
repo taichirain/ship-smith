@@ -387,11 +387,16 @@ class Agent:
 
         try:
             deployer.assert_managed_repo(task.get("git_repo"))
-            target_services = deployer.resolve_services(
-                service_scope,
-                task.get("app_services"),
-                task.get("compose_service") or "app",
-            )
+            requested_services = [s for s in (task.get("services") or []) if s]
+            partial = bool(requested_services)
+            if partial:
+                target_services = requested_services
+            else:
+                target_services = deployer.resolve_services(
+                    service_scope,
+                    task.get("app_services"),
+                    task.get("compose_service") or "app",
+                )
 
             if kind == "service_stop":
                 log_collector.info(
@@ -399,9 +404,10 @@ class Agent:
                     f"Stopping services (scope={service_scope}, services={target_services or 'all'}); containers and volumes are preserved...",
                 )
                 deployer.docker_compose_stop(compose_file, services=target_services)
-                self._intentionally_stopped = True
-                if isinstance(self._project_config, dict):
-                    self._project_config["intentionally_stopped"] = True
+                if not partial:
+                    self._intentionally_stopped = True
+                    if isinstance(self._project_config, dict):
+                        self._project_config["intentionally_stopped"] = True
                 self._collect_and_send_heartbeat()
                 self._finish_task(task_id=task_id, status="success")
                 return
@@ -413,7 +419,12 @@ class Agent:
             deployer.docker_compose_up(compose_file, services=target_services)
 
             health_result: Dict[str, Any] = {"status": "unknown"}
-            if healthcheck_url:
+            if healthcheck_url and partial:
+                log_collector.info(
+                    "health_check",
+                    "Partial start: skipping the project-level HTTP health check.",
+                )
+            elif healthcheck_url:
                 current_phase = "health_check"
                 log_collector.info("health_check", "Running health check...")
                 health_result = self.health_checker.wait_http_health(
@@ -433,9 +444,10 @@ class Agent:
                     )
                     return
 
-            self._intentionally_stopped = False
-            if isinstance(self._project_config, dict):
-                self._project_config["intentionally_stopped"] = False
+            if not partial:
+                self._intentionally_stopped = False
+                if isinstance(self._project_config, dict):
+                    self._project_config["intentionally_stopped"] = False
             self._collect_and_send_heartbeat()
             self._finish_task(task_id=task_id, status="success", health_result=health_result)
 

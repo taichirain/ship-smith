@@ -384,6 +384,10 @@ class RollbackRequest(BaseModel):
     target_deployment_id: int
 
 
+class ServiceOperationRequest(BaseModel):
+    services: Optional[List[str]] = None
+
+
 class DeploymentLogResponse(BaseModel):
     id: int
     deployment_id: int
@@ -451,7 +455,7 @@ class ProjectStatusResponse(BaseModel):
 HealthStatus = Literal["healthy", "degraded", "unhealthy", "unknown"]
 DeploymentStatus = Literal["queued", "running", "success", "failed"]
 AnomalyType = Literal["agent_offline", "health_unhealthy", "health_degraded", "last_deploy_failed"]
-EventCategory = Literal["deployment", "rollback", "flag_audit", "webhook", "config", "agent"]
+EventCategory = Literal["deployment", "rollback", "flag_audit", "webhook", "config", "agent", "operation"]
 TimelineEventType = Literal[
     "deployment_queued",
     "deployment_running",
