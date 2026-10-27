@@ -67,3 +67,7 @@ versions/*.pyc
 
 # agent wheels baked into the web image by scripts/build_shipsmith_image.sh
 apps/web/public/downloads/
+
+# release build stamp, written by scripts/build_shipsmith_image.sh
+packages/agent/shipsmith_agent/_build_info.py
+apps/api/shipsmith_api/_build_info.py
