@@ -906,6 +906,8 @@ async def generate_install_command(
             f'--token "{new_token}" '
             f'--workdir "{workdir}"'
         )
+        if settings.agent_wheel_url:
+            command += f' --wheel-url "{settings.agent_wheel_url}"'
         notes.append("此命令需要 root 权限或 sudo 访问")
         notes.append("脚本会下载 Agent 二进制、配置 systemd 服务并启动")
         notes.append("执行前请确保服务器已安装 curl 和 systemd")
@@ -920,7 +922,7 @@ async def generate_install_command(
             f'-e SHIPSMITH_WORKDIR="{workdir}" '
             f'-v /var/run/docker.sock:/var/run/docker.sock '
             f'-v {workdir}:{workdir} '
-            f'shipsmith/agent:latest'
+            f'{settings.agent_docker_image}'
         )
         notes.append("此方式使用 Docker 运行 Agent")
         notes.append("确保服务器已安装 Docker")

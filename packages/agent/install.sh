@@ -13,6 +13,7 @@ AGENT_ID=""
 DOWNLOAD_URL=""
 LOCAL_FILE=""
 GIT_URL=""
+WHEEL_URL=""
 FORCE=0
 NO_SYSTEMD=0
 
@@ -40,6 +41,8 @@ Options:
   -f, --file <path>         Use a local agent binary or archive
   -g, --git-url <url>       pip-install the agent from a git URL
                             (default: gitee master; requires python3+git)
+      --wheel-url <url>     pip-install the agent wheel from a URL
+                            (e.g. served by the panel; requires python3)
       --force               Replace this instance's binary/config/service only
       --no-systemd          Do not install or start a systemd service
   -h, --help                Show this help
@@ -64,6 +67,7 @@ while [[ $# -gt 0 ]]; do
         -d|--download) DOWNLOAD_URL="${2:-}"; shift 2 ;;
         -f|--file) LOCAL_FILE="${2:-}"; shift 2 ;;
         -g|--git-url) GIT_URL="${2:-}"; shift 2 ;;
+        --wheel-url) WHEEL_URL="${2:-}"; shift 2 ;;
         --force) FORCE=1; shift ;;
         --no-systemd) NO_SYSTEMD=1; shift ;;
         -h|--help) show_help; exit 0 ;;
@@ -157,14 +161,25 @@ else
 fi
 
 if [ -z "${BINARY:-}" ] || [ ! -f "${BINARY}" ]; then
-    # No prebuilt binary available: install from source into a per-instance venv.
-    GIT_URL="${GIT_URL:-${SHIPSMITH_AGENT_GIT_URL:-git+https://gitee.com/taichirain/ship-smith.git@master#subdirectory=packages/agent}}"
-    echo "[1/4] No binary found; installing from source with pip..."
+    # No prebuilt binary available: pip-install into a per-instance venv,
+    # preferring the panel-served wheel over a git source URL.
     command -v python3 >/dev/null 2>&1 || { echo "Error: python3 is required for source installs" >&2; exit 1; }
-    command -v git >/dev/null 2>&1 || { echo "Error: git is required for source installs" >&2; exit 1; }
+    echo "[1/4] No binary found; installing with pip..."
     python3 -m venv "${CONFIG_DIR}/venv"
     "${CONFIG_DIR}/venv/bin/pip" install -q --upgrade pip
-    "${CONFIG_DIR}/venv/bin/pip" install "${GIT_URL}"
+    if [ -n "${WHEEL_URL}" ]; then
+        WHEEL_FILE="${TEMP_DIR}/$(basename "${WHEEL_URL%%\?*}")"
+        case "${WHEEL_FILE}" in
+            *.whl) ;;
+            *) echo "Error: --wheel-url must point to a .whl file" >&2; exit 1 ;;
+        esac
+        curl -fsSL "${WHEEL_URL}" -o "${WHEEL_FILE}"
+        "${CONFIG_DIR}/venv/bin/pip" install "${WHEEL_FILE}"
+    else
+        GIT_URL="${GIT_URL:-${SHIPSMITH_AGENT_GIT_URL:-git+https://gitee.com/taichirain/ship-smith.git@master#subdirectory=packages/agent}}"
+        command -v git >/dev/null 2>&1 || { echo "Error: git is required for git source installs" >&2; exit 1; }
+        "${CONFIG_DIR}/venv/bin/pip" install "${GIT_URL}"
+    fi
     BINARY_PATH="${CONFIG_DIR}/venv/bin/shipsmith-agent"
     echo "      installed to ${CONFIG_DIR}/venv"
 else

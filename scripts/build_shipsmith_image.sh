@@ -95,6 +95,20 @@ resolve_strategy() {
 
 resolve_strategy
 
+build_agent_wheel() {
+  # Bake the agent wheel into the web image so the panel can serve it at
+  # /downloads/<wheel>. Installing from the panel guarantees the agent
+  # version matches the panel version.
+  local dest="${ROOT}/apps/web/public/downloads"
+  local pip="${ROOT}/.venv/bin/pip"
+  [ -x "${pip}" ] || pip="python3 -m pip"
+  mkdir -p "${dest}"
+  rm -f "${dest}"/shipsmith_agent-*.whl
+  echo "==> building agent wheel into apps/web/public/downloads"
+  ${pip} wheel --no-deps --no-build-isolation -w "${dest}" "${ROOT}/packages/agent" >/dev/null
+  ls -1 "${dest}"
+}
+
 build() {
   local dockerfile="$1" image="$2"
   local args=(
@@ -115,13 +129,23 @@ build() {
 
 case "${TARGET}" in
   api) build docker/Dockerfile.api shipsmith-stage-api ;;
-  web) build docker/Dockerfile.web shipsmith-stage-web ;;
+  agent)
+    build docker/Dockerfile.agent shipsmith-stage-agent
+    docker tag "shipsmith-stage-agent:${TAG}" shipsmith-stage-agent:latest
+    ;;
+  web)
+    build_agent_wheel
+    build docker/Dockerfile.web shipsmith-stage-web
+    ;;
   all)
     build docker/Dockerfile.api shipsmith-stage-api
+    build docker/Dockerfile.agent shipsmith-stage-agent
+    docker tag "shipsmith-stage-agent:${TAG}" shipsmith-stage-agent:latest
+    build_agent_wheel
     build docker/Dockerfile.web shipsmith-stage-web
     ;;
   *)
-    echo "usage: $0 {api|web|all} [tag]" >&2
+    echo "usage: $0 {api|web|agent|all} [tag]" >&2
     exit 2
     ;;
 esac

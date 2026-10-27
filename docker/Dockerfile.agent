@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+FROM docker:27-cli AS dockercli
+FROM docker/compose-bin:v2.39.2 AS composebin
+
+FROM python:3.12-slim
+
+# Package index mirrors are selectable at build time (see scripts/build_shipsmith_image.sh):
+#   --build-arg APT_MIRROR=mirrors.aliyun.com
+#   --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG APT_MIRROR=""
+ARG PIP_INDEX_URL=""
+
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s|deb.debian.org|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Statically linked docker CLI + compose plugin from the official images;
+# the daemon is the host's via the mounted /var/run/docker.sock.
+COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=composebin /docker-compose /usr/libexec/docker/cli-plugins/docker-compose
+
+COPY packages/agent /app/packages/agent
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} /app/packages/agent
+
+ENTRYPOINT ["shipsmith-agent"]

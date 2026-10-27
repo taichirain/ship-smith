@@ -64,3 +64,6 @@ versions/*.pyc
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# agent wheels baked into the web image by scripts/build_shipsmith_image.sh
+apps/web/public/downloads/

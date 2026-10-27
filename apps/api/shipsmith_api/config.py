@@ -15,6 +15,8 @@ class Settings(BaseModel):
     environment: str = "development"
     public_core_url: str = ""
     install_script_url: str = "https://shipsmith.example.com/install.sh"
+    agent_wheel_url: str = ""
+    agent_docker_image: str = "shipsmith-stage-agent:latest"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/shipsmith"
@@ -147,6 +149,8 @@ def get_settings() -> Settings:
         public_core_url=os.environ.get("PUBLIC_CORE_URL", ""),
         cors_origins=os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"),
         install_script_url=os.environ.get("INSTALL_SCRIPT_URL", "https://shipsmith.example.com/install.sh"),
+        agent_wheel_url=os.environ.get("AGENT_WHEEL_URL", ""),
+        agent_docker_image=os.environ.get("AGENT_DOCKER_IMAGE", "shipsmith-stage-agent:latest"),
         database_url=os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/shipsmith"),
         jwt_secret_key=os.environ.get("JWT_SECRET_KEY", "change-me-in-production-please"),
         jwt_algorithm=os.environ.get("JWT_ALGORITHM", "HS256"),
