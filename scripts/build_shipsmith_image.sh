@@ -95,6 +95,15 @@ resolve_strategy() {
 
 resolve_strategy
 
+# Stamp the release tag into the packages so the panel and every agent build
+# report the exact version they were built from (e.g. 0.1.0+7a66225).
+write_build_info() {
+  echo "==> build stamp: ${TAG}"
+  printf 'BUILD_SHA = "%s"\n' "${TAG}" > "${ROOT}/packages/agent/shipsmith_agent/_build_info.py"
+  printf 'BUILD_SHA = "%s"\n' "${TAG}" > "${ROOT}/apps/api/shipsmith_api/_build_info.py"
+}
+write_build_info
+
 build_agent_wheel() {
   # Bake the agent wheel into the web image so the panel can serve it at
   # /downloads/<wheel>. Installing from the panel guarantees the agent

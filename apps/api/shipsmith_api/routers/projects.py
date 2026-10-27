@@ -63,6 +63,25 @@ DOC_CONTEXT_FILES = [
 ]
 
 
+def _agent_wheel_url(settings) -> Optional[str]:
+    """URL of the agent wheel served by the panel itself.
+
+    An explicit AGENT_WHEEL_URL wins; otherwise the URL is derived from the
+    install script URL by swapping /install.sh for this build's wheel, so a
+    generated install command always installs exactly the panel's own build.
+    """
+    if settings.agent_wheel_url:
+        return settings.agent_wheel_url
+    script_url = settings.install_script_url or ""
+    if not script_url or "example.com" in script_url:
+        return ""
+    if script_url.endswith("/install.sh"):
+        base = script_url[: -len("/install.sh")]
+    else:
+        base = script_url.rsplit("/", 1)[0]
+    return f"{base}/downloads/shipsmith_agent-{API_VERSION}-py3-none-any.whl"
+
+
 def _parse_version(version_str: str) -> List[int]:
     match = re.match(r'^(\d+)\.(\d+)\.(\d+)', version_str)
     if match:
@@ -75,7 +94,11 @@ def _is_version_outdated(agent_version: Optional[str], api_version: str) -> bool
         return True
     agent_parts = _parse_version(agent_version)
     api_parts = _parse_version(api_version)
-    return agent_parts < api_parts
+    if agent_parts != api_parts:
+        return agent_parts < api_parts
+    # Same semver: builds are stamped with the release sha (0.1.0+<sha>), so
+    # any difference means the agent was installed from an older build.
+    return agent_version != api_version
 
 
 def _rollback_service_snapshot(project, target_deployment):
@@ -906,8 +929,9 @@ async def generate_install_command(
             f'--token "{new_token}" '
             f'--workdir "{workdir}"'
         )
-        if settings.agent_wheel_url:
-            command += f' --wheel-url "{settings.agent_wheel_url}"'
+        wheel_url = _agent_wheel_url(settings)
+        if wheel_url:
+            command += f' --wheel-url "{wheel_url}"'
         notes.append("此命令需要 root 权限或 sudo 访问")
         notes.append("脚本会下载 Agent 二进制、配置 systemd 服务并启动")
         notes.append("执行前请确保服务器已安装 curl 和 systemd")
