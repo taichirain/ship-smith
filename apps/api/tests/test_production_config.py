@@ -59,3 +59,29 @@ def test_production_rejects_wildcard_cors():
         validate_runtime_settings(settings)
 
     assert "CORS_ORIGINS" in str(exc.value)
+
+def test_production_allows_loopback_http_public_core_url():
+    settings = Settings(
+        environment="production",
+        jwt_secret_key="j" * 48,
+        git_credentials_secret_key="g" * 48,
+        admin_password="strong-admin-password",
+        cors_origins="http://127.0.0.1:18300",
+        public_core_url="http://127.0.0.1:18180",
+    )
+    validate_runtime_settings(settings)
+
+
+def test_production_rejects_non_loopback_http_public_core_url():
+    settings = Settings(
+        environment="production",
+        jwt_secret_key="j" * 48,
+        git_credentials_secret_key="g" * 48,
+        admin_password="strong-admin-password",
+        cors_origins="https://shipsmith.internal",
+        public_core_url="http://192.168.1.10:8000",
+    )
+    with pytest.raises(RuntimeError) as exc:
+        validate_runtime_settings(settings)
+
+    assert "PUBLIC_CORE_URL" in str(exc.value)

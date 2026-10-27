@@ -66,6 +66,17 @@ def _has_placeholder(value: str) -> bool:
     return any(marker in lowered for marker in PLACEHOLDER_MARKERS)
 
 
+def _is_loopback_http_url(value: str) -> bool:
+    """Loopback-only deployments are not exposed to the network, so plain
+    http to 127.0.0.1/localhost/[::1] is acceptable even in production."""
+    lowered = (value or "").lower()
+    return (
+        lowered.startswith("http://127.0.0.1")
+        or lowered.startswith("http://localhost")
+        or lowered.startswith("http://[::1]")
+    )
+
+
 def validate_runtime_settings(settings: Settings | None = None) -> None:
     current = settings or get_settings()
     if not current.is_production:
@@ -95,7 +106,10 @@ def validate_runtime_settings(settings: Settings | None = None) -> None:
         or any("*" in origin or _has_placeholder(origin) for origin in current.cors_origins_list)
     ):
         problems.append("CORS_ORIGINS must list explicit origins, not '*' or placeholders")
-    if not current.public_core_url.startswith("https://") or _has_placeholder(current.public_core_url):
+    if (
+        not current.public_core_url.startswith("https://")
+        and not _is_loopback_http_url(current.public_core_url)
+    ) or _has_placeholder(current.public_core_url):
         problems.append("PUBLIC_CORE_URL must be a real https:// URL in production")
     if _has_placeholder(current.database_url):
         problems.append("DATABASE_URL still contains a placeholder password")
