@@ -12,6 +12,7 @@ PROJECT_ID=""
 AGENT_ID=""
 DOWNLOAD_URL=""
 LOCAL_FILE=""
+GIT_URL=""
 FORCE=0
 NO_SYSTEMD=0
 
@@ -37,6 +38,8 @@ Options:
       --agent-id <id>       Optional agent id stored in the env file
   -d, --download <url>      Download the agent archive from a URL
   -f, --file <path>         Use a local agent binary or archive
+  -g, --git-url <url>       pip-install the agent from a git URL
+                            (default: gitee master; requires python3+git)
       --force               Replace this instance's binary/config/service only
       --no-systemd          Do not install or start a systemd service
   -h, --help                Show this help
@@ -60,6 +63,7 @@ while [[ $# -gt 0 ]]; do
         --agent-id) AGENT_ID="${2:-}"; shift 2 ;;
         -d|--download) DOWNLOAD_URL="${2:-}"; shift 2 ;;
         -f|--file) LOCAL_FILE="${2:-}"; shift 2 ;;
+        -g|--git-url) GIT_URL="${2:-}"; shift 2 ;;
         --force) FORCE=1; shift ;;
         --no-systemd) NO_SYSTEMD=1; shift ;;
         -h|--help) show_help; exit 0 ;;
@@ -153,13 +157,21 @@ else
 fi
 
 if [ -z "${BINARY:-}" ] || [ ! -f "${BINARY}" ]; then
-    echo "Error: No agent binary found." >&2
-    exit 1
+    # No prebuilt binary available: install from source into a per-instance venv.
+    GIT_URL="${GIT_URL:-${SHIPSMITH_AGENT_GIT_URL:-git+https://gitee.com/taichirain/ship-smith.git@master#subdirectory=packages/agent}}"
+    echo "[1/4] No binary found; installing from source with pip..."
+    command -v python3 >/dev/null 2>&1 || { echo "Error: python3 is required for source installs" >&2; exit 1; }
+    command -v git >/dev/null 2>&1 || { echo "Error: git is required for source installs" >&2; exit 1; }
+    python3 -m venv "${CONFIG_DIR}/venv"
+    "${CONFIG_DIR}/venv/bin/pip" install -q --upgrade pip
+    "${CONFIG_DIR}/venv/bin/pip" install "${GIT_URL}"
+    BINARY_PATH="${CONFIG_DIR}/venv/bin/shipsmith-agent"
+    echo "      installed to ${CONFIG_DIR}/venv"
+else
+    echo "[2/4] Installing binary for instance ${INSTANCE}..."
+    cp "${BINARY}" "${BINARY_PATH}"
+    chmod 755 "${BINARY_PATH}"
 fi
-
-echo "[2/4] Installing binary for instance ${INSTANCE}..."
-cp "${BINARY}" "${BINARY_PATH}"
-chmod 755 "${BINARY_PATH}"
 
 if [ "${NO_SYSTEMD}" -eq 0 ] && [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
     if systemctl list-unit-files "${SERVICE_NAME}.service" >/dev/null 2>&1; then
