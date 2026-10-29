@@ -7,7 +7,7 @@ import { AlertTriangle, ArrowRight, CheckCircle, GitBranch, Package, Power, Refr
 import AppLayout from '@/components/AppLayout';
 import LoginForm from '@/components/LoginForm';
 import StatusBadge from '@/components/StatusBadge';
-import { api, getToken, DashboardSummaryResponse, AlertListResponse, Project } from '@/lib/api';
+import { api, getToken, AUTH_EXPIRED_EVENT, DashboardSummaryResponse, AlertListResponse, Project } from '@/lib/api';
 import { parseApiTimestamp } from '@/lib/datetime';
 
 const PREVIEW_COUNT = 3;
@@ -221,7 +221,20 @@ function DashboardPage() {
 
 export default function HomePage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
-  useEffect(() => { setAuthenticated(!!getToken()); }, []);
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  useEffect(() => {
+    setAuthenticated(!!getToken());
+    // The API client fires this when the token is rejected: swap the panel for
+    // the login form instead of leaving a half-loaded dashboard behind.
+    const onExpired = () => {
+      setSessionExpired(true);
+      setAuthenticated(false);
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
+
   if (authenticated === null) return <div className="flex min-h-screen items-center justify-center"><RefreshCw className="h-7 w-7 animate-spin text-primary-600" /></div>;
-  return authenticated ? <DashboardPage /> : <LoginForm />;
+  return authenticated ? <DashboardPage /> : <LoginForm notice={sessionExpired ? '登录已过期，请重新登录' : undefined} />;
 }

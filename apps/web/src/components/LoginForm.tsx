@@ -4,10 +4,16 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setToken, getToken } from '@/lib/api';
 
-export default function LoginForm() {
+// The panel is an internal admin tool, so the default account is prefilled to
+// make signing in a single click. Change these (or clear them) for any
+// deployment that is reachable outside a trusted network.
+const DEFAULT_USERNAME = 'admin';
+const DEFAULT_PASSWORD = 'admin';
+
+export default function LoginForm({ notice }: { notice?: string }) {
   const router = useRouter();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState(DEFAULT_USERNAME);
+  const [password, setPassword] = useState(DEFAULT_PASSWORD);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +52,12 @@ export default function LoginForm() {
         </div>
 
         <div className="card p-6">
+          {notice && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {notice}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="label">Username</label>

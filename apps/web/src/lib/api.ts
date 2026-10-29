@@ -492,10 +492,46 @@ class ApiError extends Error {
 
 let tokenCache: string | null = null;
 
+/** Fired on the window when the API reports the session is no longer valid. */
+export const AUTH_EXPIRED_EVENT = 'shipsmith:auth-expired';
+
+function decodeJwtPayload(token: string): Record<string, any> | null {
+  try {
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+    const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    const binary = atob(padded);
+    let encoded = '';
+    for (let i = 0; i < binary.length; i += 1) {
+      encoded += '%' + binary.charCodeAt(i).toString(16).padStart(2, '0');
+    }
+    return JSON.parse(decodeURIComponent(encoded));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True once the token's `exp` claim has passed. Tokens we cannot decode are
+ * treated as usable and left for the API to reject with its own 401.
+ */
+export function isTokenExpired(token: string | null, skewMs: number = 0): boolean {
+  if (!token) return true;
+  const payload = decodeJwtPayload(token);
+  if (!payload || typeof payload.exp !== 'number') return false;
+  return payload.exp * 1000 <= Date.now() + skewMs;
+}
+
 export function getToken(): string | null {
-  if (tokenCache) return tokenCache;
-  if (typeof window !== 'undefined') {
+  if (!tokenCache && typeof window !== 'undefined') {
     tokenCache = localStorage.getItem('shipsmith_token');
+  }
+  // A token that expired while the tab was open is as good as no token;
+  // dropping it here keeps pages from rendering an authenticated shell.
+  if (tokenCache && isTokenExpired(tokenCache)) {
+    clearToken();
+    return null;
   }
   return tokenCache;
 }
@@ -514,6 +550,21 @@ export function clearToken(): void {
   }
 }
 
+/**
+ * Drop the dead session and send the user to the login page instead of leaving
+ * pages spinning on requests that can only fail.
+ */
+function expireSession(): void {
+  clearToken();
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  // The dashboard lives at '/', where that event swaps in the login form;
+  // every other route needs a real navigation.
+  if (window.location.pathname !== '/') {
+    window.location.replace('/');
+  }
+}
+
 async function request<T>(
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
@@ -527,7 +578,8 @@ async function request<T>(
   if (requiresAuth) {
     const token = getToken();
     if (!token) {
-      throw new ApiError('Not authenticated', 401);
+      expireSession();
+      throw new ApiError('Session expired. Please sign in again.', 401);
     }
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -550,7 +602,8 @@ async function request<T>(
 
   if (!response.ok) {
     if (response.status === 401) {
-      clearToken();
+      expireSession();
+      throw new ApiError('Session expired. Please sign in again.', 401, responseData);
     }
     throw new ApiError(
       responseData?.detail || response.statusText,
