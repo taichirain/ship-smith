@@ -59,6 +59,9 @@ Thumbs.db
 *.log
 logs/
 
+# Windows 下载标记（浏览器/网盘下载后残留）
+*Zone.Identifier
+
 # Alembic
 versions/*.pyc
 
