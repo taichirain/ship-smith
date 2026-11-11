@@ -142,6 +142,8 @@ class Agent:
     def _refresh_project_config(self) -> None:
         result = self.client.get_agent_config()
         if result:
+            if result != self._project_config:
+                self._health_failures = 0
             self._project_config = result
             self._project_config_updated_at = time.time()
             self._intentionally_stopped = bool(result.get("intentionally_stopped"))
@@ -168,12 +170,20 @@ class Agent:
             app_health = {"status": "stopped"}
         else:
             health_url = config.get("healthcheck_url")
-            if health_url:
+            health_urls = list(dict.fromkeys(([health_url] if health_url else []) + (config.get("healthcheck_urls") or [])))
+            if health_urls:
                 with self._health_lock:
-                    app_health = self.health_checker.check_http_health(
-                        health_url,
-                        timeout=config.get("healthcheck_timeout_seconds", 10),
+                    checks = [dict(url=url, **self.health_checker.check_http_health(
+                        url, timeout=config.get("healthcheck_timeout_seconds", 10),
                         expected_status=config.get("healthcheck_expected_status", 200),
+                    )) for url in health_urls]
+                failed = [c for c in checks if c.get("status") != "healthy"]
+                app_health = dict(failed[0] if failed else checks[0])
+                app_health["checks"] = checks
+                if failed:
+                    app_health["error"] = "; ".join(
+                        f"{c['url']}: {c.get('error') or 'HTTP ' + str(c.get('http_status'))}"
+                        for c in failed
                     )
             else:
                 # No HTTP healthcheck configured: fall back to the container
@@ -183,10 +193,30 @@ class Agent:
                     "source": "containers",
                 }
 
+        if app_health.get("status") not in ("stopped", "unknown"):
+            container_health = derive_container_health(containers)
+            if container_health != "healthy" and app_health.get("status") == "healthy":
+                app_health["status"] = container_health
+            app_health["container_status"] = container_health
+            broken = [c["service"] for c in containers
+                      if c.get("status") != "running" or c.get("health") in ("unhealthy", "starting")]
+            if broken:
+                app_health["error"] = "; ".join(filter(None, [app_health.get("error"), "Containers: " + ", ".join(broken)]))
+        raw_status = app_health.get("status")
+        if raw_status in ("unhealthy", "degraded"):
+            failures = getattr(self, "_health_failures", 0) + 1
+            self._health_failures = failures
+            threshold = config.get("healthcheck_failure_threshold") or 2
+            app_health["consecutive_failures"] = failures
+            if failures < threshold:
+                app_health.update(status="unknown", reason="confirming_failure")
+        else:
+            self._health_failures = 0
+
         previous_health = getattr(self, "_last_health_status", None)
         current_health = app_health.get("status")
         self._last_health_status = current_health
-        if previous_health == "healthy" and current_health in ("unhealthy", "degraded"):
+        if previous_health not in ("unhealthy", "degraded") and current_health in ("unhealthy", "degraded"):
             threading.Thread(
                 target=self._capture_health_diagnostics,
                 args=(current_health,),

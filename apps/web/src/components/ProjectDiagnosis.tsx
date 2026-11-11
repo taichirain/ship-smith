@@ -82,8 +82,8 @@ export default function ProjectDiagnosis({
     ].filter(Boolean);
     issues.push({
       key: 'health',
-      tone: 'error',
-      title: `应用健康检查失败${http}`,
+      tone: status.app_health.reason === 'confirming_failure' ? 'warning' : 'error',
+      title: status.app_health.reason === 'confirming_failure' ? '健康检查异常，等待确认' : `应用健康检查失败${http}`,
       detail: detailParts.join(' · ') || '健康检查端点没有返回预期状态',
     });
   }

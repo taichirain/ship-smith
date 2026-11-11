@@ -47,6 +47,8 @@ class Project(Base):
     compose_service = Column(String(128), nullable=False, default="app")
     deploy_strategy = Column(String(32), nullable=False, default="compose-build")
     healthcheck_url = Column(Text)
+    healthcheck_urls = Column(JSON, nullable=False, default=list)
+    healthcheck_failure_threshold = Column(Integer, nullable=False, default=2)
     healthcheck_timeout_seconds = Column(Integer, nullable=False, default=10)
     healthcheck_expected_status = Column(Integer, nullable=False, default=200)
     flags_file_path = Column(Text, nullable=False)

@@ -67,6 +67,8 @@ const FORM_DEFAULTS: Partial<WizardFormData> = {
   compose_file: 'docker-compose.yml',
   compose_service: 'app',
   healthcheck_url: '',
+  healthcheck_urls: '',
+  healthcheck_failure_threshold: 2,
   healthcheck_timeout_seconds: 10,
   healthcheck_expected_status: 200,
   migration_service: '',
@@ -111,6 +113,8 @@ interface WizardFormData {
   compose_file: string;
   compose_service: string;
   healthcheck_url: string;
+  healthcheck_urls: string;
+  healthcheck_failure_threshold: number;
   healthcheck_timeout_seconds: number;
   healthcheck_expected_status: number;
   migration_service: string;
@@ -161,6 +165,8 @@ export default function ProjectWizard({ onClose, onSuccess, onError }: ProjectWi
     compose_file: 'docker-compose.yml',
     compose_service: 'app',
     healthcheck_url: '',
+  healthcheck_urls: '',
+  healthcheck_failure_threshold: 2,
     healthcheck_timeout_seconds: 10,
     healthcheck_expected_status: 200,
     migration_service: '',
@@ -500,6 +506,8 @@ ${formData.healthcheck_url ? `health_check:
         deploy_workdir: formData.deploy_workdir,
         flags_file_path: formData.flags_file_path,
         healthcheck_url: formData.healthcheck_url || null,
+        healthcheck_urls: (formData.healthcheck_urls || '').split(/\n/).map(url => url.trim()).filter(Boolean),
+        healthcheck_failure_threshold: formData.healthcheck_failure_threshold,
         healthcheck_expected_status: formData.healthcheck_expected_status,
         deploy_strategy: 'compose-build',
         compose_file: formData.compose_file,
@@ -964,6 +972,18 @@ ${formData.healthcheck_url ? `health_check:
                 Agent 用来检测应用是否正常运行的 HTTP 端点
               </p>
             </div>
+              <div>
+                <label className="label">附加健康检查地址（每行一个）</label>
+                <textarea className="input" rows={3} value={formData.healthcheck_urls}
+                  onChange={(e) => updateField('healthcheck_urls', e.target.value)} />
+                <p className="text-xs text-gray-400 mt-1">所有地址及当前启用的容器都通过，项目才显示健康；附加地址与主地址使用相同期望状态码。</p>
+              </div>
+              <div>
+                <label className="label">连续失败次数</label>
+                <input type="number" className="input" min={1} max={10}
+                  value={formData.healthcheck_failure_threshold}
+                  onChange={(e) => updateField('healthcheck_failure_threshold', Number(e.target.value))} />
+              </div>
 
             <div>
               <label className="label">健康检查超时时间（秒）</label>

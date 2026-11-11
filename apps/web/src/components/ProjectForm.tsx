@@ -31,6 +31,8 @@ const FORM_DEFAULTS: Partial<FormData> = {
   compose_service: 'app',
   deploy_strategy: 'compose-build',
   healthcheck_url: '',
+  healthcheck_urls: '',
+  healthcheck_failure_threshold: 2,
   healthcheck_timeout_seconds: 10,
   healthcheck_expected_status: 200,
   migration_service: '',
@@ -75,6 +77,8 @@ interface FormData {
   compose_service: string;
   deploy_strategy: string;
   healthcheck_url: string;
+  healthcheck_urls: string;
+  healthcheck_failure_threshold: number;
   healthcheck_timeout_seconds: number;
   healthcheck_expected_status: number;
   flags_file_path: string;
@@ -124,6 +128,8 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
     compose_service: 'app',
     deploy_strategy: 'compose-build',
     healthcheck_url: '',
+  healthcheck_urls: '',
+  healthcheck_failure_threshold: 2,
     healthcheck_timeout_seconds: 10,
     healthcheck_expected_status: 200,
     flags_file_path: '',
@@ -391,6 +397,8 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
         deploy_workdir: formData.deploy_workdir,
         flags_file_path: formData.flags_file_path,
         healthcheck_url: formData.healthcheck_url || null,
+        healthcheck_urls: (formData.healthcheck_urls || '').split(/\n/).map(url => url.trim()).filter(Boolean),
+        healthcheck_failure_threshold: formData.healthcheck_failure_threshold,
         healthcheck_expected_status: formData.healthcheck_expected_status,
         deploy_strategy: formData.deploy_strategy,
         compose_file: formData.compose_file,
@@ -856,6 +864,18 @@ export default function ProjectForm({ onClose, onSuccess, onError }: ProjectForm
                 <p className="text-xs text-gray-400 mt-1">
                   Agent 调用此端点判断应用是否正常，建议返回 200 OK
                 </p>
+              </div>
+              <div>
+                <label className="label">附加健康检查地址（每行一个）</label>
+                <textarea className="input" rows={3} value={formData.healthcheck_urls}
+                  onChange={(e) => updateField('healthcheck_urls', e.target.value)} />
+                <p className="text-xs text-gray-400 mt-1">所有地址及当前启用的容器都通过，项目才显示健康；附加地址与主地址使用相同期望状态码。</p>
+              </div>
+              <div>
+                <label className="label">连续失败次数</label>
+                <input type="number" className="input" min={1} max={10}
+                  value={formData.healthcheck_failure_threshold}
+                  onChange={(e) => updateField('healthcheck_failure_threshold', Number(e.target.value))} />
               </div>
               <div>
                 <label className="label flex items-center justify-between">

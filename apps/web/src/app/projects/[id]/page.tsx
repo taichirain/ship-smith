@@ -969,6 +969,8 @@ export default function ProjectDetailPage() {
       compose_service: project.compose_service,
       deploy_strategy: project.deploy_strategy,
       healthcheck_url: project.healthcheck_url,
+      healthcheck_urls: project.healthcheck_urls || [],
+      healthcheck_failure_threshold: project.healthcheck_failure_threshold || 2,
       healthcheck_timeout_seconds: project.healthcheck_timeout_seconds,
       healthcheck_expected_status: project.healthcheck_expected_status,
       flags_file_path: project.flags_file_path,
@@ -1010,6 +1012,8 @@ export default function ProjectDetailPage() {
       const payload: ProjectUpdate = {
         ...editFormData,
         healthcheck_url: editFormData.healthcheck_url || null,
+        healthcheck_urls: (editFormData.healthcheck_urls || []).map(url => url.trim()).filter(Boolean),
+        healthcheck_failure_threshold: editFormData.healthcheck_failure_threshold || 2,
         migration_service: (editFormData.migration_service || '').trim(),
         migration_command: (editFormData.migration_command || '').trim() || null,
         migration_phase: editFormData.migration_phase || 'pre',
@@ -1539,13 +1543,7 @@ export default function ProjectDetailPage() {
                       </span>
                       <div className="flex items-center gap-3 text-sm">
                         <StatusBadge
-                          status={
-                            projectStatus.app_health.status === 'healthy'
-                              ? 'healthy'
-                              : projectStatus.app_health.status === 'degraded'
-                                ? 'degraded'
-                                : 'unhealthy'
-                          }
+                          status={projectStatus.app_health.status}
                           small
                         />
                         {projectStatus.app_health.response_ms && (
@@ -1559,6 +1557,18 @@ export default function ProjectDetailPage() {
                           </span>
                         )}
                       </div>
+                      {projectStatus.app_health.reason === 'confirming_failure' && (
+                        <p className="text-sm text-amber-700 mt-2">检查失败，等待连续失败确认（第 {projectStatus.app_health.consecutive_failures} 次）</p>
+                      )}
+                      {projectStatus.app_health.error && (
+                        <p className="text-sm text-red-700 mt-2 break-all">{projectStatus.app_health.error}</p>
+                      )}
+                      {projectStatus.app_health.checks?.map(check => (
+                        <div key={check.url} className="text-xs mt-2 flex gap-2 break-all">
+                          <StatusBadge status={check.status} small />
+                          <span>{check.url} · {check.http_status ? `HTTP ${check.http_status}` : check.error}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -3693,6 +3703,21 @@ flags_sync_interval_seconds: 30`}
                       <p className="text-xs text-gray-400 mt-1">
                         Agent 调用此端点判断应用是否正常，建议返回 200 OK
                       </p>
+                    </div>
+                    <div>
+                      <label className="label">附加健康检查地址（每行一个）</label>
+                      <textarea className="input" rows={3}
+                        value={(editFormData.healthcheck_urls || []).join('\n')}
+                        onChange={(e) => setEditFormData({ ...editFormData, healthcheck_urls: e.target.value.split('\n') })}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">所有地址及当前启用的容器都通过，项目才显示健康；附加地址与主地址使用相同期望状态码。</p>
+                    </div>
+                    <div>
+                      <label className="label">连续失败次数</label>
+                      <input type="number" className="input" min={1} max={10}
+                        value={editFormData.healthcheck_failure_threshold || 2}
+                        onChange={(e) => setEditFormData({ ...editFormData, healthcheck_failure_threshold: Number(e.target.value) })}
+                      />
                     </div>
                     <div>
                       <label className="label flex items-center justify-between">

@@ -20,6 +20,18 @@ GitCredentialType = Literal["none", "http_token", "ssh_key"]
 
 
 class ProjectBase(BaseModel):
+    @field_validator("healthcheck_urls")
+    @classmethod
+    def validate_healthcheck_urls(cls, value):
+        from urllib.parse import urlsplit
+        if value is None:
+            raise ValueError("healthcheck_urls must be a list; use [] to clear")
+        for url in value:
+            parsed = urlsplit(url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("healthcheck_urls must contain HTTP(S) URLs without credentials")
+        return list(dict.fromkeys(value))
+
     name: str = Field(..., max_length=128)
     environment: Optional[EnvironmentType] = None
     git_repo: str
@@ -34,6 +46,8 @@ class ProjectBase(BaseModel):
     compose_service: str = Field(default="app", max_length=128)
     deploy_strategy: str = Field(default="compose-build", max_length=32)
     healthcheck_url: Optional[str] = None
+    healthcheck_urls: List[str] = Field(default_factory=list, max_length=10)
+    healthcheck_failure_threshold: int = Field(default=2, ge=1, le=10)
     healthcheck_timeout_seconds: int = Field(default=10, ge=1, le=300)
     healthcheck_expected_status: int = Field(default=200, ge=100, le=599)
     flags_file_path: str
@@ -130,6 +144,18 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(BaseModel):
+    @field_validator("healthcheck_urls")
+    @classmethod
+    def validate_healthcheck_urls(cls, value):
+        from urllib.parse import urlsplit
+        if value is None:
+            raise ValueError("healthcheck_urls must be a list; use [] to clear")
+        for url in value:
+            parsed = urlsplit(url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("healthcheck_urls must contain HTTP(S) URLs without credentials")
+        return list(dict.fromkeys(value))
+
     name: Optional[str] = Field(default=None, max_length=128)
     environment: Optional[EnvironmentType] = None
     git_repo: Optional[str] = None
@@ -144,6 +170,8 @@ class ProjectUpdate(BaseModel):
     compose_service: Optional[str] = Field(default=None, max_length=128)
     deploy_strategy: Optional[str] = Field(default=None, max_length=32)
     healthcheck_url: Optional[str] = None
+    healthcheck_urls: Optional[List[str]] = Field(default=None, max_length=10)
+    healthcheck_failure_threshold: Optional[int] = Field(default=None, ge=1, le=10)
     healthcheck_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=300)
     healthcheck_expected_status: Optional[int] = Field(default=None, ge=100, le=599)
     flags_file_path: Optional[str] = None

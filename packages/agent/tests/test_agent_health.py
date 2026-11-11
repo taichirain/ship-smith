@@ -33,7 +33,7 @@ class FakeHealth:
 
     def get_container_statuses(self, workdir, compose_file, compose_profiles=None):
         self.container_args = (workdir, compose_file, compose_profiles)
-        return []
+        return [{"service": "api", "status": "running", "health": "healthy"}]
 
     def get_runtime_info(self):
         return {}
@@ -121,6 +121,8 @@ def test_container_statuses_are_scoped_to_compose_project(tmp_path, monkeypatch)
 
     def fake_run(command, **kwargs):
         commands.append((command, kwargs))
+        if command[-2:] == ["config", "--services"]:
+            return SimpleNamespace(returncode=0, stdout="web\n", stderr="")
         return SimpleNamespace(
             returncode=0,
             stdout=json.dumps({
@@ -166,7 +168,7 @@ def test_container_statuses_rejects_same_compose_name_from_other_workdir(tmp_pat
         "shipsmith_agent.health_check.subprocess.run",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=0,
-            stdout=json.dumps({
+            stdout="web\n" if args[0][-2:] == ["config", "--services"] else json.dumps({
                 "Name": "production-web-1",
                 "State": "running",
                 "Labels": "com.docker.compose.project.config_files=/opt/production/compose.yml",
@@ -175,20 +177,20 @@ def test_container_statuses_rejects_same_compose_name_from_other_workdir(tmp_pat
         ),
     )
 
-    assert HealthChecker().get_container_statuses(str(tmp_path), "compose.yml") == []
+    assert HealthChecker().get_container_statuses(str(tmp_path), "compose.yml") == [{"service": "web", "status": "missing", "health": None}]
 
 
 def test_container_statuses_accept_newline_delimited_compose_json(tmp_path, monkeypatch):
     (tmp_path / "compose.yml").write_text("services: {}\n")
     config_label = f"com.docker.compose.project.config_files={tmp_path / 'compose.yml'}"
     output = "\n".join(json.dumps(row) for row in (
-        {"Name": "api-1", "State": "running", "Ports": "", "Labels": config_label},
-        {"Name": "web-1", "State": "running", "Ports": "", "Labels": config_label},
+        {"Name": "api-1", "Service": "api", "State": "running", "Ports": "", "Labels": config_label},
+        {"Name": "web-1", "Service": "web", "State": "running", "Ports": "", "Labels": config_label},
         {"Name": "migration-run-1", "State": "exited", "Labels": f"{config_label},com.docker.compose.oneoff=True"},
     ))
     monkeypatch.setattr(
         "shipsmith_agent.health_check.subprocess.run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=output, stderr=""),
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="api\nweb\n" if args[0][-2:] == ["config", "--services"] else output, stderr=""),
     )
 
     result = HealthChecker().get_container_statuses(str(tmp_path), "compose.yml")
@@ -270,3 +272,84 @@ def test_derive_container_health_still_starting():
 def test_derive_container_health_exited_or_restarting():
     assert derive_container_health([{"service": "api", "status": "exited", "health": None}]) == "unhealthy"
     assert derive_container_health([{"service": "api", "status": "restarting", "health": None}]) == "unhealthy"
+
+
+def test_api_healthy_does_not_hide_exited_frontend():
+    agent = make_agent()
+    agent.health_checker.get_container_statuses = lambda **kwargs: [
+        {"service": "api", "status": "running", "health": "healthy"},
+        {"service": "web", "status": "exited", "health": "unhealthy"},
+    ]
+    agent._capture_health_diagnostics = lambda status: None
+    agent._collect_and_send_heartbeat()
+    assert agent.client.payload["app_health"]["status"] == "unknown"
+    assert agent.client.payload["app_health"]["reason"] == "confirming_failure"
+    agent._collect_and_send_heartbeat()
+    health = agent.client.payload["app_health"]
+    assert health["status"] == "unhealthy"
+    assert "web" in health["error"]
+    assert health["http_status"] == 204
+
+
+def test_all_http_probes_are_required_and_failure_count_resets():
+    agent = make_agent()
+    agent._capture_health_diagnostics = lambda status: None
+    agent._project_config["healthcheck_urls"] = ["http://frontend/", "http://frontend/"]
+    calls = []
+    frontend_ok = False
+
+    def check(url, **kwargs):
+        calls.append(url)
+        code = 204 if "ready" in url or frontend_ok else 502
+        return {"status": "healthy" if code == 204 else "unhealthy", "http_status": code}
+
+    agent.health_checker.check_http_health = check
+    agent._collect_and_send_heartbeat()
+    agent._collect_and_send_heartbeat()
+    health = agent.client.payload["app_health"]
+    assert health["status"] == "unhealthy"
+    assert len(health["checks"]) == 2
+    assert "http://frontend/: HTTP 502" in health["error"]
+    assert calls.count("http://frontend/") == 2
+    frontend_ok = True
+    agent._collect_and_send_heartbeat()
+    assert agent.client.payload["app_health"]["status"] == "healthy"
+    frontend_ok = False
+    agent._collect_and_send_heartbeat()
+    assert agent.client.payload["app_health"]["status"] == "unknown"
+    assert agent.client.payload["app_health"]["consecutive_failures"] == 1
+
+
+def test_missing_or_unreadable_container_snapshot_never_reports_healthy():
+    agent = make_agent()
+    agent.health_checker.get_container_statuses = lambda **kwargs: []
+    agent._collect_and_send_heartbeat()
+    assert agent.client.payload["app_health"]["status"] == "unknown"
+
+
+def test_http_failure_is_not_hidden_by_starting_container():
+    agent = make_agent()
+    agent._project_config["healthcheck_failure_threshold"] = 1
+    agent._capture_health_diagnostics = lambda status: None
+    agent.health_checker.get_container_statuses = lambda **kwargs: [
+        {"service": "web", "status": "running", "health": "starting"},
+    ]
+    agent.health_checker.check_http_health = lambda *args, **kwargs: {"status": "unhealthy", "http_status": 502}
+    agent._collect_and_send_heartbeat()
+    assert agent.client.payload["app_health"]["status"] == "unhealthy"
+
+
+def test_only_enabled_services_are_required_and_missing_services_detected(tmp_path, monkeypatch):
+    (tmp_path / "compose.yml").write_text("services: {}\n")
+    labels = {"com.docker.compose.project.config_files": str(tmp_path / "compose.yml")}
+    rows = [
+        {"Name": "api-1", "Service": "api", "State": "running", "Labels": labels},
+        {"Name": "old-worker-1", "Service": "worker", "State": "exited", "Labels": labels},
+        {"Name": "migrate-1", "Service": "migrate", "State": "exited", "Labels": dict(labels, **{"com.docker.compose.oneoff": "True"})},
+    ]
+    monkeypatch.setattr("shipsmith_agent.health_check.subprocess.run", lambda command, **kwargs: SimpleNamespace(
+        returncode=0, stderr="", stdout="api\nweb\nworker-light\n" if command[-2:] == ["config", "--services"] else json.dumps(rows),
+    ))
+    containers = HealthChecker().get_container_statuses(str(tmp_path), "compose.yml", ["light-workers"])
+    assert {c["service"] for c in containers} == {"api-1", "web", "worker-light"}
+    assert derive_container_health(containers) == "unhealthy"

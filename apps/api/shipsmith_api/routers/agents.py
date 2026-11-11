@@ -98,6 +98,8 @@ async def get_agent_config(
         "compose_file": project.compose_file,
         "compose_profiles": project.compose_profiles or [],
         "healthcheck_url": project.healthcheck_url,
+        "healthcheck_urls": project.healthcheck_urls or [],
+        "healthcheck_failure_threshold": project.healthcheck_failure_threshold,
         "healthcheck_timeout_seconds": project.healthcheck_timeout_seconds,
         "healthcheck_expected_status": project.healthcheck_expected_status,
         "intentionally_stopped": bool(project_status.intentionally_stopped) if project_status else False,
@@ -713,6 +715,11 @@ async def agent_heartbeat(
                     "old_status": old_health_status,
                     "new_status": new_health_status,
                 }
+
+    if event_details is not None:
+        event_details["error"] = app_health.get("error")
+        event_details["checks"] = app_health.get("checks", [])
+        event_details["container_status"] = app_health.get("container_status")
 
     db.commit()
 

@@ -221,3 +221,47 @@ def test_repeated_health_cycles_keep_history(client, test_session, test_project)
         .count()
         == 0
     )
+
+
+def test_additional_health_probes_round_trip_and_reach_agent(client, auth_headers, test_session, test_project):
+    _bind_agent_token(test_session, test_project)
+    url = f"/api/v1/projects/{test_project.id}"
+    response = client.patch(url, headers=auth_headers, json={
+        "healthcheck_urls": ["http://127.0.0.1:18290/"], "healthcheck_failure_threshold": 3,
+    })
+    assert response.status_code == 200, response.text
+    data = client.get(url, headers=auth_headers).json()
+    assert data["healthcheck_urls"] == ["http://127.0.0.1:18290/"]
+    assert data["healthcheck_failure_threshold"] == 3
+    config = client.get("/api/v1/agents/config", headers={"Authorization": "Bearer agent-token"}).json()
+    assert config["healthcheck_urls"] == data["healthcheck_urls"]
+    assert config["healthcheck_failure_threshold"] == 3
+    assert config["healthcheck_url"] == test_project.healthcheck_url
+    # An unrelated edit must not clear the probes.
+    assert client.patch(url, headers=auth_headers, json={"name": "renamed"}).status_code == 200
+    assert client.get(url, headers=auth_headers).json()["healthcheck_urls"] == data["healthcheck_urls"]
+    assert client.patch(url, headers=auth_headers, json={"healthcheck_urls": ["file:///etc/passwd"]}).status_code == 422
+    assert client.patch(url, headers=auth_headers, json={"healthcheck_urls": None}).status_code == 422
+    assert client.patch(url, headers=auth_headers, json={"healthcheck_failure_threshold": 0}).status_code == 422
+
+
+def test_frontend_failure_creates_alert_with_reason_and_recovers(client, test_session, test_project):
+    _bind_agent_token(test_session, test_project)
+    from unittest.mock import patch
+    headers = {"Authorization": "Bearer agent-token"}
+    probes = [
+        {"url": "http://forge/ready", "status": "healthy", "http_status": 200},
+        {"url": "http://forge/", "status": "unhealthy", "http_status": 502},
+    ]
+    with patch("shipsmith_api.notifications.dispatch_notification") as notify:
+        for health in [
+            {"status": "unknown", "reason": "confirming_failure"},
+            {"status": "unhealthy", "error": "http://forge/: HTTP 502", "checks": probes},
+            {"status": "healthy", "checks": [dict(p, status="healthy", http_status=200) for p in probes]},
+        ]:
+            assert client.post("/api/v1/agents/heartbeat", headers=headers, json={"app_health": health}).status_code == 200
+        events = [call.args[2] for call in notify.call_args_list]
+        assert events == ["health_unhealthy", "health_recovered"]
+        assert notify.call_args_list[0].args[3]["error"] == "http://forge/: HTTP 502"
+    alert = test_session.query(Alert).filter(Alert.project_id == test_project.id, Alert.alert_type == "health_unhealthy").one()
+    assert alert.status == "resolved"

@@ -25,6 +25,8 @@ export interface Project {
   compose_service: string;
   deploy_strategy: string;
   healthcheck_url: string | null;
+  healthcheck_urls: string[];
+  healthcheck_failure_threshold: number;
   healthcheck_timeout_seconds: number;
   healthcheck_expected_status: number;
   flags_file_path: string;
@@ -86,6 +88,8 @@ export interface ProjectUpdate {
   compose_service?: string;
   deploy_strategy?: string;
   healthcheck_url?: string | null;
+  healthcheck_urls?: string[];
+  healthcheck_failure_threshold?: number;
   healthcheck_timeout_seconds?: number;
   healthcheck_expected_status?: number;
   flags_file_path?: string;
@@ -186,6 +190,9 @@ export interface ProjectStatus {
     ports?: string[];
   }>;
   app_health?: {
+    checks?: Array<{ url: string; status: string; http_status?: number; error?: string }>;
+    reason?: string;
+    consecutive_failures?: number;
     status: string;
     response_ms?: number;
     http_status?: number;

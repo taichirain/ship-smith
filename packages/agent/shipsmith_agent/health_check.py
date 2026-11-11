@@ -25,13 +25,15 @@ def derive_container_health(containers: list) -> str:
     states = [(container.get("status") or "").lower() for container in containers]
     healths = [(container.get("health") or "").lower() for container in containers]
 
-    if any(state in ("exited", "dead", "created", "paused") for state in states):
+    if any(state in ("exited", "dead", "created", "paused", "missing") for state in states):
         return "unhealthy"
     if any(state == "restarting" for state in states):
         return "unhealthy"
     if any(health == "unhealthy" for health in healths):
         return "unhealthy"
     if any(health == "starting" for health in healths):
+        return "unknown"
+    if any(state != "running" for state in states):
         return "unknown"
     return "healthy"
 
@@ -113,13 +115,18 @@ class HealthChecker:
             )
             if result.returncode != 0:
                 logger.warning("Failed to get project Compose containers: %s", result.stderr.strip())
-                return []
+                return [{"service": "compose", "status": "unknown", "error": "container query failed"}]
 
             output = result.stdout.strip()
-            if not output:
-                return []
+            # Compose ps can retain containers belonging to profiles that are
+            # no longer enabled. Resolve the expected services independently.
+            config_command = command[:command.index("ps")] + ["config", "--services"]
+            configured = subprocess.run(config_command, cwd=workdir, capture_output=True, text=True, timeout=15)
+            if configured.returncode != 0:
+                return [{"service": "compose", "status": "unknown", "error": "service discovery failed"}]
+            expected = set(configured.stdout.split())
             try:
-                rows = json.loads(output)
+                rows = json.loads(output or "[]")
             except json.JSONDecodeError:
                 # Compose versions may emit one JSON object per line.
                 rows = [json.loads(line) for line in output.splitlines() if line.strip()]
@@ -127,6 +134,7 @@ class HealthChecker:
                 rows = [rows]
 
             containers = []
+            seen = set()
             for row in rows:
                 if not isinstance(row, dict):
                     continue
@@ -146,6 +154,10 @@ class HealthChecker:
                         continue
                 if not config_label or os.path.realpath(config_label) != expected_compose_path:
                     continue
+                service = row.get("Service")
+                if service not in expected:
+                    continue
+                seen.add(service)
                 ports = row.get("Ports") or ""
                 containers.append({
                     "service": row.get("Name") or row.get("Names") or row.get("Service"),
@@ -154,10 +166,12 @@ class HealthChecker:
                     "ports": [port.strip() for port in ports.split(",") if port.strip()],
                     "health": (row.get("Health") or "").lower() or None,
                 })
+            for service in sorted(expected - seen):
+                containers.append({"service": service, "status": "missing", "health": None})
             return containers
         except (OSError, subprocess.SubprocessError, ValueError, TypeError) as exc:
             logger.warning("Failed to get project Compose containers: %s", exc)
-            return []
+            return [{"service": "compose", "status": "unknown", "error": str(exc)}]
 
     def check_http_health(
         self,
