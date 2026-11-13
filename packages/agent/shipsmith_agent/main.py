@@ -23,6 +23,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _configure_logging(level: str) -> None:
+    """Apply SHIPSMITH_LOG_LEVEL and quiet per-request HTTP logging."""
+    resolved = logging.getLevelName(level.upper())
+    logging.getLogger().setLevel(resolved if isinstance(resolved, int) else logging.INFO)
+    # httpx logs every poll/heartbeat request at INFO, which floods syslog on
+    # long-running agents without adding operational signal.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 TASK_HEARTBEAT_INTERVAL_SECONDS = 60
 
 _ERROR_PHASE_MAP = {
@@ -881,6 +891,7 @@ def main():
             sys.exit(1)
     
     try:
+        _configure_logging(get_settings().log_level)
         agent = Agent()
         agent.run()
     except Exception as e:
